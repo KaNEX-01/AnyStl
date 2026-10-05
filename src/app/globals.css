@@ -1,42 +1,134 @@
 @import "tailwindcss";
 
-:root {
-  --background: #0a0e1a;
-  --foreground: #e2e8f0;
-  --card-bg: #111827;
-  --card-border: #1e293b;
-  --input-bg: #0f172a;
-  --input-border: #1e3a5f;
-}
-
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --color-card-bg: var(--card-bg);
-  --color-card-border: var(--card-border);
-  --color-input-bg: var(--input-bg);
-  --color-input-border: var(--input-border);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+/* "Spool" theme: graphite surfaces, orange accent; each site gets its own
+   filament colour (see platforms.ts). */
+@theme {
+  --color-spool-bg: #171412;
+  --color-spool-side: #1f1b18;
+  --color-spool-card: #221d1a;
+  --color-spool-well: #2c2622;
+  --color-spool-field: #26211e;
+  --color-spool-chip: #2a2521;
+  --color-spool-line: #3a322c;
+  --color-spool-line-soft: #332c27;
+  --color-spool-text: #f3ede7;
+  --color-spool-muted: #bdb1a7;
+  --color-spool-dim: #8c8078;
+  --color-spool-accent: #ff7a1a;
+  --color-spool-accent-soft: #ffb072;
+  --color-spool-price: #3a2a1c;
+  --font-sans: var(--font-space-grotesk), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-jetbrains-mono), ui-monospace, monospace;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
+  background: var(--color-spool-bg);
+  color: var(--color-spool-text);
+  font-family: var(--font-sans);
 }
 
-/* Custom scrollbar for dark theme */
+::selection {
+  background: rgb(255 122 26 / 0.35);
+}
+
+/* Scrollbars in the theme's colours */
 ::-webkit-scrollbar {
-  width: 8px;
+  width: 10px;
+  height: 10px;
 }
 ::-webkit-scrollbar-track {
-  background: #0a0e1a;
+  background: var(--color-spool-bg);
 }
 ::-webkit-scrollbar-thumb {
-  background: #1e293b;
-  border-radius: 4px;
+  background: var(--color-spool-line);
+  border-radius: 5px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #334155;
+  background: #4a413b;
+}
+* {
+  scrollbar-color: var(--color-spool-line) var(--color-spool-bg);
+}
+
+/* LogoLoader: the logo as a loading animation (components/LogoLoader.tsx) */
+@keyframes anystl-sweep {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes anystl-draw {
+  0% {
+    stroke-dashoffset: 100;
+  }
+  45%,
+  60% {
+    stroke-dashoffset: 0;
+  }
+  100% {
+    stroke-dashoffset: -100;
+  }
+}
+@keyframes anystl-mesh {
+  0%,
+  100% {
+    opacity: 0.12;
+  }
+  50% {
+    opacity: 0.75;
+  }
+}
+@keyframes anystl-scan {
+  0%,
+  100% {
+    transform: translate(0, 0);
+  }
+  25% {
+    transform: translate(1.6px, -1.6px);
+  }
+  50% {
+    transform: translate(0, -3.2px);
+  }
+  75% {
+    transform: translate(-1.6px, -1.6px);
+  }
+}
+@keyframes anystl-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.45;
+  }
+}
+.anystl-loader-sweep {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: anystl-sweep 1.1s linear infinite;
+}
+.anystl-loader-edge {
+  stroke-dasharray: 100;
+  stroke-dashoffset: 100;
+  animation: anystl-draw 2.4s ease-in-out infinite;
+}
+.anystl-loader-mesh {
+  opacity: 0.12;
+  animation: anystl-mesh 1.2s ease-in-out infinite;
+}
+.anystl-loader-scan {
+  animation: anystl-scan 2.4s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .anystl-loader * {
+    animation: none !important;
+  }
+  .anystl-loader .anystl-loader-edge {
+    stroke-dashoffset: 0;
+  }
+  .anystl-loader .anystl-loader-mesh {
+    opacity: 0.45;
+  }
+  .anystl-loader {
+    animation: anystl-pulse 1.6s ease-in-out infinite;
+  }
 }

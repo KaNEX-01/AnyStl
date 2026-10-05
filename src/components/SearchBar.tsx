@@ -1,15 +1,15 @@
 "use client";
 
 import { useState, FormEvent } from "react";
+import { LogoLoader } from "./LogoLoader";
 
 interface Props {
   onSearch: (query: string) => void;
   isLoading: boolean;
   initialQuery?: string;
-  compact?: boolean;
 }
 
-export function SearchBar({ onSearch, isLoading, initialQuery, compact }: Props) {
+export function SearchBar({ onSearch, isLoading, initialQuery }: Props) {
   const [query, setQuery] = useState(initialQuery ?? "");
   const [lastInitialQuery, setLastInitialQuery] = useState(initialQuery);
 
@@ -24,87 +24,40 @@ export function SearchBar({ onSearch, isLoading, initialQuery, compact }: Props)
     if (trimmed) onSearch(trimmed);
   };
 
-  if (compact) {
-    return (
-      <form onSubmit={handleSubmit} className="w-full">
-        <div className="relative flex items-center rounded-xl border border-slate-700/60 bg-[#0c1425] focus-within:border-blue-500/50 transition-all">
-          <svg
-            className="absolute left-3 w-4 h-4 text-slate-500 pointer-events-none"
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
-          >
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-          </svg>
-          <input
-            type="text"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search 3D models..."
-            className="w-full bg-transparent pl-9 pr-20 py-2 text-sm text-slate-200 placeholder:text-slate-500 focus:outline-none"
-          />
-          <button
-            type="submit"
-            disabled={isLoading || !query.trim()}
-            className="absolute right-1.5 rounded-lg bg-gradient-to-r from-blue-600 to-cyan-500 px-4 py-1.5 text-xs font-semibold text-white hover:from-blue-500 hover:to-cyan-400 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
-          >
-            {isLoading ? (
-              <svg className="animate-spin h-3.5 w-3.5" viewBox="0 0 24 24">
-                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
-                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-              </svg>
-            ) : (
-              "Search"
-            )}
-          </button>
-        </div>
-      </form>
-    );
-  }
-
   return (
-    <form onSubmit={handleSubmit} className="w-full max-w-2xl mx-auto">
-      <div className="relative flex items-center rounded-2xl border border-[#1e3a5f] bg-[#0c1425] shadow-lg shadow-blue-900/10 focus-within:border-blue-500/50 focus-within:shadow-blue-500/10 transition-all">
-        <svg
-          className="absolute left-4 w-5 h-5 text-slate-500 pointer-events-none"
-          fill="none"
-          stroke="currentColor"
-          viewBox="0 0 24 24"
-        >
-          <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            strokeWidth={2}
-            d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
-          />
-        </svg>
-
-        <input
-          type="text"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder='Search 3D models... e.g. "benchy", "phone stand", "vase"'
-          className="w-full bg-transparent pl-12 pr-32 py-4 text-sm text-slate-200 placeholder:text-slate-500 focus:outline-none"
-        />
-
-        <button
-          type="submit"
-          disabled={isLoading || !query.trim()}
-          className="absolute right-2 rounded-xl bg-gradient-to-r from-blue-600 to-cyan-500 px-6 py-2.5 text-sm font-semibold text-white hover:from-blue-500 hover:to-cyan-400 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
-        >
-          {isLoading ? (
-            <span className="flex items-center gap-2">
-              <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
-                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
-                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-              </svg>
-              Searching
-            </span>
-          ) : (
-            "Search"
-          )}
-        </button>
-      </div>
+    <form
+      onSubmit={handleSubmit}
+      role="search"
+      className="flex h-[60px] items-center gap-3 rounded-[18px] border border-spool-line bg-spool-field pl-5 pr-2 transition-colors focus-within:border-spool-accent/70"
+    >
+      {/* A print nozzle */}
+      <svg className="h-[22px] w-[22px] shrink-0 text-spool-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 3h6v5l-3 3-3-3V3zM12 11v10" />
+      </svg>
+      <label htmlFor="search-input" className="sr-only">
+        Search 3D models
+      </label>
+      <input
+        id="search-input"
+        type="search"
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+        placeholder='Search 3D models, e.g. "benchy", "phone stand", "articulated dragon"'
+        className="min-w-0 flex-1 bg-transparent text-[17px] text-spool-text placeholder:text-spool-dim focus:outline-none"
+      />
+      <button
+        type="submit"
+        disabled={isLoading || !query.trim()}
+        aria-busy={isLoading}
+        // Stays at full strength while searching so the loader reads; only an
+        // empty box greys it out.
+        className={`flex h-11 shrink-0 items-center gap-2 rounded-xl bg-spool-accent px-5 text-[15px] font-bold text-spool-side transition-colors hover:bg-[#ff8d3a] disabled:cursor-not-allowed ${
+          isLoading ? "" : "disabled:opacity-45"
+        }`}
+      >
+        {isLoading && <LogoLoader size={20} color="currentColor" />}
+        {isLoading ? "Searching" : "Search"}
+      </button>
     </form>
   );
 }

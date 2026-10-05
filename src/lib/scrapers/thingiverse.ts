@@ -1,12 +1,37 @@
 import { Page } from "playwright";
 import { ModelResult, Platform } from "../types";
-import { computeScore } from "../scoring";
+import { finalize, mergeUnique, pageRange } from "./common";
 
 const PLATFORM: Platform = "thingiverse";
-const AI_RE = /\bAI\b/i;
+/** Thingiverse listing pages hold ~20 things, so one of our pages spans this many. */
+const NATIVE_PAGES_PER_PAGE = 2;
 
-export async function scrapeThingiverse(page: Page, query: string): Promise<ModelResult[]> {
-  const url = `https://www.thingiverse.com/search?q=${encodeURIComponent(query)}&page=1&type=things&sort=relevant`;
+/** Scrapes native pages for our page `pageNo`, one after another in the same tab. */
+async function scrapePages(page: Page, urlForPage: (n: number) => string, pageNo: number) {
+  const first = (pageNo - 1) * NATIVE_PAGES_PER_PAGE + 1;
+  const lists: ModelResult[][] = [];
+  for (const n of pageRange(first, first + NATIVE_PAGES_PER_PAGE - 1)) {
+    const results = await scrapeListing(page, urlForPage(n));
+    lists.push(results);
+    if (results.length === 0) break;
+  }
+  return mergeUnique(lists);
+}
+
+export function searchThingiverse(page: Page, query: string, pageNo = 1): Promise<ModelResult[]> {
+  return scrapePages(
+    page,
+    (n) => `https://www.thingiverse.com/search?q=${encodeURIComponent(query)}&page=${n}&type=things&sort=relevant`,
+    pageNo,
+  );
+}
+
+export function featuredThingiverse(page: Page): Promise<ModelResult[]> {
+  return scrapePages(page, (n) => `https://www.thingiverse.com/search?page=${n}&type=things&sort=popular`, 1);
+}
+
+/** Scrapes the model cards of any Thingiverse search/listing page. */
+async function scrapeListing(page: Page, url: string): Promise<ModelResult[]> {
   await page.goto(url, { waitUntil: "domcontentloaded", timeout: 30_000 });
 
   // Wait for the actual card content to load (not just the container)
@@ -80,9 +105,11 @@ export async function scrapeThingiverse(page: Page, query: string): Promise<Mode
     return items;
   }, PLATFORM);
 
-  return results.map((r) => ({
-    ...r,
-    isAI: AI_RE.test(r.title),
-    score: computeScore(r),
-  }));
+  // Thingiverse images are blocked cross-origin in browsers; serve them via our proxy.
+  return results.map((r) =>
+    finalize({
+      ...r,
+      thumbnail: r.thumbnail ? `/api/image?url=${encodeURIComponent(r.thumbnail)}` : "",
+    }),
+  );
 }

@@ -1,21 +1,23 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { JetBrains_Mono, Space_Grotesk } from "next/font/google";
 import HeartbeatKeepalive from "@/components/HeartbeatKeepalive";
+import { Sidebar } from "@/components/Sidebar";
+import { PreviewModal } from "@/components/PreviewModal";
 import "./globals.css";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
-  subsets: ["latin"],
+const spaceGrotesk = Space_Grotesk({
+  variable: "--font-space-grotesk",
+  subsets: ["latin", "latin-ext"],
 });
 
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
+const jetbrainsMono = JetBrains_Mono({
+  variable: "--font-jetbrains-mono",
+  subsets: ["latin", "latin-ext"],
 });
 
 export const metadata: Metadata = {
   title: "AnyStl - 3D Model Meta Search",
-  description: "Search 3D printing models across MakerWorld, Thingiverse, and Printables",
+  description: "Search 21 3D model sites at once: 3D printing, CAD and Blender / 3D asset libraries",
   other: {
     "darkreader-lock": "",
   },
@@ -29,15 +31,16 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased dark`}
+      className={`${spaceGrotesk.variable} ${jetbrainsMono.variable} h-full antialiased dark`}
       suppressHydrationWarning
     >
-      <body
-        className="min-h-full flex flex-col bg-[#0a0e1a] text-slate-200"
-        suppressHydrationWarning
-      >
+      <body className="min-h-full bg-spool-bg text-spool-text" suppressHydrationWarning>
         <HeartbeatKeepalive />
-        {children}
+        <div className="min-h-screen lg:flex">
+          <Sidebar />
+          <div className="flex min-w-0 flex-1 flex-col">{children}</div>
+        </div>
+        <PreviewModal />
       </body>
     </html>
   );

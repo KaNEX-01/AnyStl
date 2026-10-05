@@ -1,93 +1,96 @@
-import { Page } from "playwright";
 import { ModelResult, Platform } from "../types";
-import { computeScore } from "../scoring";
+import { fetchJson, finalize, pageOffset, RESULT_LIMIT } from "./common";
 
 const PLATFORM: Platform = "printables";
-const AI_RE = /\bAI\b/i;
+const API_URL = "https://api.printables.com/graphql/";
+const MEDIA_URL = "https://media.printables.com/";
 
-export async function scrapePrintables(page: Page, query: string): Promise<ModelResult[]> {
-  const url = `https://www.printables.com/search/models?q=${encodeURIComponent(query)}`;
-  await page.goto(url, { waitUntil: "domcontentloaded", timeout: 30_000 });
+// The website sits behind a bot-check interstitial, so query the GraphQL
+// API the site itself uses instead of scraping the DOM.
+const MODEL_FIELDS = `
+  id
+  name
+  slug
+  likesCount
+  downloadCount
+  image { filePath }
+`;
 
-  // Wait for card grid to render
-  await page.waitForSelector(".card-layout", { timeout: 15_000 }).catch(() => {});
-  await page.evaluate(() => window.scrollBy(0, 1500));
-  await page.waitForTimeout(2000);
-
-  const results = await page.evaluate((platform: Platform) => {
-    const items: Array<{
-      title: string;
-      url: string;
-      thumbnail: string;
-      likes: number;
-      downloads: number | null;
-      platform: Platform;
-    }> = [];
-
-    const cards = document.querySelectorAll(".card-layout");
-    const seen = new Set<string>();
-
-    for (const card of cards) {
-      // Model link - the image link has class "card-image"
-      const imageLink = card.querySelector('a[href*="/model/"]') as HTMLAnchorElement | null;
-      if (!imageLink) continue;
-      const href = imageLink.href;
-      if (!href.match(/\/model\/\d+/)) continue;
-      const fullUrl = href.startsWith("http") ? href : `https://www.printables.com${href}`;
-      if (seen.has(fullUrl)) continue;
-      seen.add(fullUrl);
-
-      // Title from the text link (class "h clamp-two-lines")
-      const titleLink = card.querySelector("a.h") as HTMLAnchorElement | null;
-      const title = titleLink?.textContent?.trim() || "";
-      if (!title || title.length < 2) continue;
-
-      // Thumbnail - get the real image, not the avatar
-      let thumbnail = "";
-      const imgs = card.querySelectorAll("img");
-      for (const img of imgs) {
-        if (img.src && img.src.includes("media/prints")) {
-          thumbnail = img.src;
-          break;
-        }
-      }
-      // Fallback to last image (usually the model image)
-      if (!thumbnail && imgs.length > 0) {
-        thumbnail = imgs[imgs.length - 1]?.src || "";
-      }
-
-      // Stats bar: "21.3K   4.9  508.4K" → [likes, rating, downloads]
-      let likes = 0;
-      let downloads: number | null = null;
-      const statsBar = card.querySelector(".stats-bar");
-      if (statsBar) {
-        const statsText = statsBar.textContent?.trim() || "";
-        const nums = statsText.match(/[\d,.]+[kKmM]?/g) || [];
-        if (nums.length >= 3) {
-          // Format: likes, rating, downloads
-          likes = parseStatNum(nums[0]!);
-          downloads = parseStatNum(nums[2]!);
-        } else if (nums.length >= 1) {
-          likes = parseStatNum(nums[0]!);
-        }
-      }
-
-      items.push({ title, url: fullUrl, thumbnail, likes, downloads, platform });
+const SEARCH_QUERY = `
+  query SearchModels($query: String!, $limit: Int!, $offset: Int!) {
+    searchPrints2(query: $query, limit: $limit, offset: $offset) {
+      items { ${MODEL_FIELDS} }
     }
+  }
+`;
 
-    function parseStatNum(s: string): number {
-      const cleaned = s.replace(/,/g, "").trim();
-      if (/[kK]$/i.test(cleaned)) return Math.round(parseFloat(cleaned) * 1000);
-      if (/[mM]$/i.test(cleaned)) return Math.round(parseFloat(cleaned) * 1000000);
-      return parseInt(cleaned, 10) || 0;
+// Same feed as printables.com/model sorted by "Trending" (most likes this week).
+const TRENDING_QUERY = `
+  query TrendingModels($limit: Int!, $ordering: String) {
+    morePrints(limit: $limit, ordering: $ordering) {
+      items { ${MODEL_FIELDS} }
     }
+  }
+`;
 
-    return items;
-  }, PLATFORM);
+interface PrintablesItem {
+  id: string;
+  name: string;
+  slug: string;
+  likesCount: number | null;
+  downloadCount: number | null;
+  image: { filePath: string } | null;
+}
 
-  return results.map((r) => ({
-    ...r,
-    isAI: AI_RE.test(r.title),
-    score: computeScore(r),
-  }));
+interface PrintablesResponse<T> {
+  data?: T;
+  errors?: Array<{ message: string }>;
+}
+
+async function graphql<T>(query: string, variables: object): Promise<T> {
+  const data = await fetchJson<PrintablesResponse<T>>(
+    API_URL,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Origin: "https://www.printables.com",
+        Referer: "https://www.printables.com/",
+      },
+      body: JSON.stringify({ query, variables }),
+    },
+    "Printables API",
+  );
+  if (data.errors?.length || !data.data) {
+    throw new Error(`Printables API error: ${data.errors?.[0]?.message ?? "empty response"}`);
+  }
+  return data.data;
+}
+
+function toResult(item: PrintablesItem): ModelResult {
+  return finalize({
+    title: item.name,
+    url: `https://www.printables.com/model/${item.id}-${item.slug}`,
+    thumbnail: item.image?.filePath ? MEDIA_URL + item.image.filePath : "",
+    likes: item.likesCount || 0,
+    downloads: item.downloadCount ?? null,
+    platform: PLATFORM,
+  });
+}
+
+export async function searchPrintables(query: string, pageNo = 1): Promise<ModelResult[]> {
+  const data = await graphql<{ searchPrints2: { items: PrintablesItem[] } | null }>(SEARCH_QUERY, {
+    query,
+    limit: RESULT_LIMIT,
+    offset: pageOffset(pageNo),
+  });
+  return (data.searchPrints2?.items || []).map(toResult);
+}
+
+export async function featuredPrintables(): Promise<ModelResult[]> {
+  const data = await graphql<{ morePrints: { items: PrintablesItem[] } | null }>(TRENDING_QUERY, {
+    limit: RESULT_LIMIT,
+    ordering: "-likes_count_7_days",
+  });
+  return (data.morePrints?.items || []).map(toResult);
 }
