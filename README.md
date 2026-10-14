@@ -44,6 +44,14 @@ A site that keeps blocking automated searches is skipped for 10 minutes and offe
 
 **MyMiniFactory** is searched through its public sitemaps (~430,000 models, cached for a week in `~/.cache/anystl/`). Its thumbnails are looked up from each model page the first time a card is shown (this uses `curl`), then cached; like/download counts aren't available.
 
+## Checking that everything works
+
+```
+npm run build && npm run smoke
+```
+
+Starts a separate AnyStl on port 3999 (with a throwaway data folder, so your saved models aren't touched) and tests every feature against the live sites: each site's search, images, quick preview, Featured, Saved and Open in OrcaSlicer. It prints PASS / FAIL per item and takes about two minutes; `npm run smoke -- --quick` skips Featured and OrcaSlicer. A site that suddenly fails usually changed its pages.
+
 ## Built with
 
 - [Next.js](https://nextjs.org) 16 (React 19)

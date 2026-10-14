@@ -300,7 +300,7 @@ export default function SavedPage() {
               onClick={onCheck}
               disabled={busy !== null}
               className={toolButton}
-              title={lastChecked ? `Last checked ${new Date(lastChecked).toLocaleString()}` : "Find models that were taken down"}
+              title={lastChecked ? `Last checked ${new Date(lastChecked).toLocaleString("en-US")}` : "Find models that were taken down"}
             >
               {busy === "check" && <LogoLoader size={16} />}
               {busy === "check" ? "Checking…" : "Check links"}

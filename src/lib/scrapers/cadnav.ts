@@ -1,5 +1,5 @@
 import { ModelResult, Platform } from "../types";
-import { decodeEntities, finalize, USER_AGENT } from "./common";
+import { decodeEntities, fetchText, finalize } from "./common";
 
 const PLATFORM: Platform = "cadnav";
 const BASE_URL = "https://www.cadnav.com";
@@ -9,15 +9,11 @@ const BASE_URL = "https://www.cadnav.com";
  * HTML tag pages (/3d/<tag>.html). Returns null when the tag doesn't exist.
  */
 async function scrapeTagPage(url: string): Promise<ModelResult[] | null> {
-  const resp = await fetch(url, {
-    headers: { "User-Agent": USER_AGENT, Accept: "text/html" },
-    signal: AbortSignal.timeout(20_000),
-  });
-  if (resp.status === 404) return null;
-  if (!resp.ok) {
-    throw new Error(`CadNav returned ${resp.status}`);
+  const { status, text: html } = await fetchText(url);
+  if (status === 404) return null;
+  if (status !== 200) {
+    throw new Error(`CadNav returned ${status}`);
   }
-  const html = await resp.text();
 
   const results: ModelResult[] = [];
   const seen = new Set<string>();

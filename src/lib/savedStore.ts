@@ -2,7 +2,7 @@ import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { ModelResult, Platform, SavedModel } from "./types";
-import { curlRequest, fetchJson, USER_AGENT } from "./scrapers/common";
+import { fetchJson, fetchText } from "./scrapers/common";
 
 // Saved models live in a JSON file in the user's data directory, so they
 // survive browser changes, cleared site data and reinstalls of AnyStl.
@@ -171,10 +171,10 @@ async function checkPrintables(url: string): Promise<LinkStatus> {
 async function checkThingiverse(url: string): Promise<LinkStatus> {
   const id = url.match(/thing:(\d+)/)?.[1];
   if (!id) return "unknown";
-  const resp = await fetch(url, { headers: { "User-Agent": USER_AGENT }, signal: AbortSignal.timeout(15_000) });
-  if (resp.status === 404 || resp.status === 410) return "dead";
-  if (resp.status !== 200) return "unknown";
-  return (await resp.text()).includes(`thing:${id}"`) ? "ok" : "dead";
+  const { status, text: html } = await fetchText(url, { timeoutMs: 15_000 });
+  if (status === 404 || status === 410) return "dead";
+  if (status !== 200) return "unknown";
+  return html.includes(`thing:${id}"`) ? "ok" : "dead";
 }
 
 async function checkLink(url: string, platform: Platform): Promise<LinkStatus> {
@@ -187,18 +187,14 @@ async function checkLink(url: string, platform: Platform): Promise<LinkStatus> {
   const verdict = (status: number) =>
     status === 404 || status === 410 ? "dead" : status >= 200 && status < 400 ? "ok" : "unknown";
   try {
-    const resp = await fetch(url, {
-      headers: { "User-Agent": USER_AGENT, Accept: "text/html" },
-      redirect: "follow",
-      signal: AbortSignal.timeout(15_000),
+    const { status } = await fetchText(url, {
+      timeoutMs: 15_000,
+      retryIf: (r) => r.status === 403 || r.status === 429,
     });
-    resp.body?.cancel().catch(() => {});
-    if (resp.status !== 403 && resp.status !== 429) return verdict(resp.status);
+    return verdict(status);
   } catch {
-    // try curl
+    return "unknown";
   }
-  const curl = await curlRequest(url).catch(() => null);
-  return curl ? verdict(curl.status) : "unknown";
 }
 
 /** Checks every saved link (a few at a time) and stores the outcome. */

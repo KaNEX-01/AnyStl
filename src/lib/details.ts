@@ -1,5 +1,5 @@
-import { getSharedContext, waitPastChallenge } from "./browser";
-import { curlRequest, decodeEntities, fetchJson, PROXIED_IMAGE_HOSTS, proxied, USER_AGENT } from "./scrapers/common";
+import { getHeadfulContext, getSharedContext, waitPastChallenge } from "./browser";
+import { decodeEntities, fetchJson, fetchText, PROXIED_IMAGE_HOSTS, proxied } from "./scrapers/common";
 import { ModelDetails, Platform } from "./types";
 
 // Model pages are read on demand for the quick preview: license, author,
@@ -111,28 +111,21 @@ const isChallenge = (html: string) =>
   html.length < 1000 || CHALLENGE.test(html.length < 20_000 ? html : html.slice(0, 3000));
 
 async function fetchHtml(url: string): Promise<string | null> {
-  const headers = { "User-Agent": USER_AGENT, Accept: "text/html" };
-  try {
-    const resp = await fetch(url, { headers, signal: AbortSignal.timeout(15_000) });
-    // 202 is what some bot walls (AWS WAF) answer with.
-    if (resp.status === 200) {
-      const html = await resp.text();
-      if (!isChallenge(html)) return html;
-    }
-  } catch {
-    // fall through to curl
-  }
-  const curl = await curlRequest(url, { headers }).catch(() => null);
-  if (curl && curl.status === 200) {
-    const html = curl.body.toString("utf8");
-    if (!isChallenge(html)) return html;
-  }
-  return null;
+  // Anything but a real page (202 is what AWS WAF answers with) is worth a retry with curl.
+  const unusable = (status: number, html: string) => status !== 200 || isChallenge(html);
+  const { status, text } = await fetchText(url, {
+    timeoutMs: 15_000,
+    retryIf: (r) => unusable(r.status, r.body.toString("utf8")),
+  }).catch(() => ({ status: 0, text: "" }));
+  return unusable(status, text) ? null : text;
 }
 
+/** Sites whose bot check (DataDome) only lets the visible browser through, as in their scrapers. */
+const HEADFUL_PLATFORMS: Platform[] = ["turbosquid", "free3d"];
+
 /** Last resort for sites behind a bot check: load the page in the shared browser. */
-async function browserHtml(url: string): Promise<string> {
-  const context = await getSharedContext();
+async function browserHtml(url: string, platform: Platform): Promise<string> {
+  const context = HEADFUL_PLATFORMS.includes(platform) ? await getHeadfulContext() : await getSharedContext();
   const page = await context.newPage();
   try {
     await page.goto(url, { waitUntil: "domcontentloaded", timeout: 20_000 });
@@ -246,7 +239,7 @@ export async function getDetails(url: string, platform: Platform): Promise<Model
   }
   if (!details) {
     let html = await fetchHtml(url);
-    if (!html) html = await browserHtml(url).catch(() => null);
+    if (!html) html = await browserHtml(url, platform).catch(() => null);
     details = html
       ? fromHtml(url, html, platform)
       : { url, images: [], formats: SITE_FORMATS[platform] || [], error: "The site didn't let AnyStl read this page." };

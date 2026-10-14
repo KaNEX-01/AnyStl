@@ -1,5 +1,5 @@
 import { ModelResult, Platform } from "../types";
-import { decodeEntities, finalize, mergeUnique, pageRange, parseCount, RESULT_LIMIT, USER_AGENT } from "./common";
+import { decodeEntities, fetchText, finalize, mergeUnique, pageRange, parseCount, RESULT_LIMIT } from "./common";
 
 const PLATFORM: Platform = "pinshape";
 const BASE_URL = "https://pinshape.com";
@@ -8,14 +8,10 @@ const NATIVE_PAGES_PER_PAGE = 3;
 
 /** Pinshape has no public API; its listing pages are plain server-rendered HTML. */
 async function scrapeListing(url: string): Promise<ModelResult[]> {
-  const resp = await fetch(url, {
-    headers: { "User-Agent": USER_AGENT, Accept: "text/html" },
-    signal: AbortSignal.timeout(20_000),
-  });
-  if (!resp.ok) {
-    throw new Error(`Pinshape returned ${resp.status}`);
+  const { status, text: html } = await fetchText(url);
+  if (status !== 200) {
+    throw new Error(`Pinshape returned ${status}`);
   }
-  const html = await resp.text();
 
   const results: ModelResult[] = [];
   const seen = new Set<string>();

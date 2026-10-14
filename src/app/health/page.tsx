@@ -80,7 +80,7 @@ function SiteRow({ platform, site, checking, now }: { platform: Platform; site?:
       <td className="py-3 text-sm text-spool-muted">
         {site?.blockedUntil && site.blockedUntil > now && (
           <p className="text-[#FCA5A5]">
-            Kept blocking automated searches; skipped until {new Date(site.blockedUntil).toLocaleTimeString()}.
+            Kept blocking automated searches; skipped until {new Date(site.blockedUntil).toLocaleTimeString("en-US")}.
           </p>
         )}
         {last && (

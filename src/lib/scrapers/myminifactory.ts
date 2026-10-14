@@ -2,7 +2,7 @@ import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { ModelResult, Platform } from "../types";
-import { finalize, pageOffset, RESULT_LIMIT, USER_AGENT } from "./common";
+import { fetchText, finalize, pageOffset, RESULT_LIMIT } from "./common";
 
 const PLATFORM: Platform = "myminifactory";
 const SITEMAP_INDEX = "https://www.myminifactory.com/sitemap.xml";
@@ -28,14 +28,14 @@ const ADULT_WORDS = new Set(["nsfw", "nude", "naked", "sexy", "erotic", "hentai"
 let slugs: string[] | null = null;
 let loading: Promise<string[]> | null = null;
 
-async function fetchText(url: string): Promise<string> {
-  const resp = await fetch(url, { headers: { "User-Agent": USER_AGENT }, signal: AbortSignal.timeout(60_000) });
-  if (!resp.ok) throw new Error(`MyMiniFactory sitemap returned ${resp.status}`);
-  return resp.text();
+async function fetchSitemap(url: string): Promise<string> {
+  const { status, text } = await fetchText(url, { headers: { Accept: "application/xml" }, timeoutMs: 60_000 });
+  if (status !== 200) throw new Error(`MyMiniFactory sitemap returned ${status}`);
+  return text;
 }
 
 async function downloadIndex(): Promise<string[]> {
-  const index = await fetchText(SITEMAP_INDEX);
+  const index = await fetchSitemap(SITEMAP_INDEX);
   const sitemaps = [...index.matchAll(/<loc>([^<]*threedobject_sitemap_\d+\.xml)<\/loc>/g)].map((m) => m[1]!);
   if (sitemaps.length === 0) throw new Error("MyMiniFactory sitemap has no model lists");
 
@@ -44,7 +44,7 @@ async function downloadIndex(): Promise<string[]> {
   await Promise.all(
     Array.from({ length: PARALLEL_DOWNLOADS }, async () => {
       for (let url = queue.shift(); url; url = queue.shift()) {
-        const xml = await fetchText(url);
+        const xml = await fetchSitemap(url);
         for (const m of xml.matchAll(/<loc>https:\/\/www\.myminifactory\.com\/object\/([^<]+)<\/loc>/g)) {
           found.push(m[1]!);
         }

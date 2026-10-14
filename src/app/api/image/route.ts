@@ -3,7 +3,7 @@ import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { NextRequest, NextResponse } from "next/server";
-import { curlRequest, PROXIED_IMAGE_HOSTS as ALLOWED_HOSTS, USER_AGENT } from "@/lib/scrapers/common";
+import { httpRequest, PROXIED_IMAGE_HOSTS as ALLOWED_HOSTS } from "@/lib/scrapers/common";
 
 export const dynamic = "force-dynamic";
 
@@ -74,25 +74,10 @@ export async function GET(request: NextRequest) {
 
   try {
     const result = await withHostSlot(target.hostname, async () => {
-      const upstream = await fetch(target, {
-        headers: { "User-Agent": USER_AGENT, Accept: "image/*" },
-        signal: AbortSignal.timeout(20_000),
-      });
-      let data: Uint8Array<ArrayBuffer>;
-      let declared: string;
-      if (upstream.ok) {
-        data = new Uint8Array(await upstream.arrayBuffer());
-        declared = upstream.headers.get("content-type") || "";
-      } else if (upstream.status === 403) {
-        // Some image hosts refuse Node's TLS fingerprint but accept curl.
-        const retry = await curlRequest(target.href, { headers: { Accept: "image/*" } }).catch(() => null);
-        if (!retry || retry.status !== 200) return null;
-        data = new Uint8Array(retry.body);
-        declared = retry.contentType;
-      } else {
-        return null;
-      }
-      const type = declared.startsWith("image/") ? declared : sniffImageType(data);
+      const upstream = await httpRequest(target.href, { headers: { Accept: "image/*" } });
+      if (upstream.status !== 200) return null;
+      const data = new Uint8Array(upstream.body);
+      const type = upstream.contentType.startsWith("image/") ? upstream.contentType : sniffImageType(data);
       return type ? { data, type } : null;
     });
     if (!result) {

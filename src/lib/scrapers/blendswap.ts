@@ -1,21 +1,17 @@
 import { ModelResult, Platform } from "../types";
-import { decodeEntities, finalize, parseCount, USER_AGENT } from "./common";
+import { decodeEntities, fetchText, finalize, parseCount } from "./common";
 
 const PLATFORM: Platform = "blendswap";
 const BASE_URL = "https://www.blendswap.com";
 
 /** Blend Swap has no API; listing pages are server-rendered HTML. */
 async function scrapeListing(url: string): Promise<ModelResult[]> {
-  const resp = await fetch(url, {
-    headers: { "User-Agent": USER_AGENT, Accept: "text/html" },
-    signal: AbortSignal.timeout(20_000),
-  });
+  const { status, text: html } = await fetchText(url);
   // A search with no matches answers 404 rather than an empty page.
-  if (resp.status === 404) return [];
-  if (!resp.ok) {
-    throw new Error(`Blend Swap returned ${resp.status}`);
+  if (status === 404) return [];
+  if (status !== 200) {
+    throw new Error(`Blend Swap returned ${status}`);
   }
-  const html = await resp.text();
 
   const results: ModelResult[] = [];
   const seen = new Set<string>();

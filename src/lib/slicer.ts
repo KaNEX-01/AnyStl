@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { crc32, deflateRawSync } from "node:zlib";
 import { getSharedContext } from "./browser";
-import { fetchJson, USER_AGENT } from "./scrapers/common";
+import { fetchJson, httpRequest } from "./scrapers/common";
 import { Platform } from "./types";
 
 // "Open in OrcaSlicer": the model's print files are handed to OrcaSlicer
@@ -179,9 +179,9 @@ function zip(entries: { name: string; data: Buffer }[]): Buffer {
 }
 
 async function download(file: RemoteFile): Promise<Buffer> {
-  const res = await fetch(file.url, { headers: { "User-Agent": USER_AGENT }, signal: AbortSignal.timeout(120_000) });
-  if (!res.ok) throw new Error(`${file.name} couldn't be downloaded (${res.status})`);
-  return Buffer.from(await res.arrayBuffer());
+  const res = await httpRequest(file.url, { timeoutMs: 120_000 });
+  if (res.status !== 200) throw new Error(`${file.name} couldn't be downloaded (${res.status})`);
+  return res.body;
 }
 
 /** "Orbit Revolver — Working!" → "Orbit-Revolver-Working". */

@@ -17,7 +17,7 @@ function dayLabel(time: number): string {
   const today = new Date().setHours(0, 0, 0, 0);
   if (day === today) return "Today";
   if (day === today - 86_400_000) return "Yesterday";
-  return new Date(time).toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "long", year: "numeric" });
+  return new Date(time).toLocaleDateString("en-US", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
 }
 
 export default function OpenedPage() {

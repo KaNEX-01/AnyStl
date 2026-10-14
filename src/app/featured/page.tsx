@@ -85,7 +85,7 @@ export default function FeaturedPage() {
         <div className="flex items-center gap-3">
           {data && !loading && (
             <span className="font-mono text-xs text-spool-dim">
-              Updated {new Date(data.fetchedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+              Updated {new Date(data.fetchedAt).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" })}
             </span>
           )}
           <button

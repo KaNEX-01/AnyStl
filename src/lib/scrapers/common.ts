@@ -61,6 +61,8 @@ export const PROXIED_IMAGE_HOSTS = new Set([
   "media.cgtrader.com",
   // Occasionally answers with a same-origin resource policy.
   "csg.tinkercad.com",
+  // Sends images as application/octet-stream, which browsers block.
+  "assets.myminifactory.com",
 ]);
 
 /** Routes a thumbnail through AnyStl's image proxy (for hosts browsers get blocked on). */
@@ -77,23 +79,30 @@ export function finalize(result: Omit<ModelResult, "score" | "isAI">): ModelResu
   };
 }
 
-export interface CurlResponse {
+export interface HttpResponse {
   status: number;
   contentType: string;
   body: Buffer;
 }
 
+interface RequestOptions {
+  method?: string;
+  headers?: Record<string, string>;
+  body?: string;
+  timeoutMs?: number;
+}
+
 /**
  * Makes a GET/POST request with the curl command-line tool. Some firewalls
  * (CloudFront, Cloudflare) reject Node's own TLS fingerprint outright while
- * letting curl through, so this is the fallback when fetch() gets a 403.
+ * letting curl through; httpRequest() falls back to this on its own.
  */
 export function curlRequest(
   url: string,
-  { method = "GET", headers = {}, body }: { method?: string; headers?: Record<string, string>; body?: string } = {},
-): Promise<CurlResponse> {
+  { method = "GET", headers = {}, body, timeoutMs = 20_000 }: RequestOptions = {},
+): Promise<HttpResponse> {
   return new Promise((resolve, reject) => {
-    const args = ["--silent", "--location", "--max-time", "20", "--user-agent", USER_AGENT, "--request", method];
+    const args = ["--silent", "--location", "--max-time", String(Math.ceil(timeoutMs / 1000)), "--user-agent", USER_AGENT, "--request", method];
     for (const [k, v] of Object.entries(headers)) {
       if (k.toLowerCase() !== "user-agent") args.push("--header", `${k}: ${v}`);
     }
@@ -118,26 +127,52 @@ export function curlRequest(
   });
 }
 
-/** fetch() + JSON parse with a browser user agent and a timeout, falling back to curl on a 403. */
-export async function fetchJson<T>(url: string, init: RequestInit = {}, label = url): Promise<T> {
-  const headers: Record<string, string> = {
-    "User-Agent": USER_AGENT,
-    Accept: "application/json",
-    ...(init.headers as Record<string, string> | undefined),
-  };
-  const resp = await fetch(url, { ...init, headers, signal: AbortSignal.timeout(20_000) });
-  if (resp.status === 403) {
-    const retry = await curlRequest(url, {
-      method: init.method,
-      headers,
-      body: typeof init.body === "string" ? init.body : undefined,
-    }).catch(() => null);
-    if (retry && retry.status >= 200 && retry.status < 300) {
-      return JSON.parse(retry.body.toString("utf8")) as T;
-    }
+/**
+ * Every server-side request to a model site goes through here: fetch() with a
+ * browser user agent and a timeout, retried with curl when the answer looks
+ * like a firewall turning Node away (by default a 403, or fetch failing
+ * outright). The curl answer is used when it is better than fetch's.
+ */
+export async function httpRequest(
+  url: string,
+  { retryIf = (r: HttpResponse) => r.status === 403, ...options }: RequestOptions & { retryIf?: (r: HttpResponse) => boolean } = {},
+): Promise<HttpResponse> {
+  const { method = "GET", body, timeoutMs = 20_000 } = options;
+  const headers = { "User-Agent": USER_AGENT, ...options.headers };
+  let first: HttpResponse | null = null;
+  try {
+    const resp = await fetch(url, { method, headers, body, signal: AbortSignal.timeout(timeoutMs) });
+    first = {
+      status: resp.status,
+      contentType: resp.headers.get("content-type") || "",
+      body: Buffer.from(await resp.arrayBuffer()),
+    };
+    if (!retryIf(first)) return first;
+  } catch (err) {
+    // A timeout won't go better with curl; anything else (TLS reset, ...) might.
+    if (err instanceof Error && err.name === "TimeoutError") throw err;
   }
-  if (!resp.ok) {
+  const retry = await curlRequest(url, { ...options, method, headers }).catch(() => null);
+  if (retry && (!first || !retryIf(retry))) return retry;
+  if (first) return first;
+  throw new Error(`${new URL(url).hostname} couldn't be reached`);
+}
+
+/** httpRequest() + JSON parse; throws on a non-2xx answer. */
+export async function fetchJson<T>(url: string, init: RequestInit = {}, label = url): Promise<T> {
+  const resp = await httpRequest(url, {
+    method: init.method,
+    headers: { Accept: "application/json", ...(init.headers as Record<string, string> | undefined) },
+    body: typeof init.body === "string" ? init.body : undefined,
+  });
+  if (resp.status < 200 || resp.status >= 300) {
     throw new Error(`${label} returned ${resp.status}`);
   }
-  return resp.json() as Promise<T>;
+  return JSON.parse(resp.body.toString("utf8")) as T;
+}
+
+/** httpRequest() for an HTML/XML page, as text. */
+export async function fetchText(url: string, options: Parameters<typeof httpRequest>[1] = {}): Promise<{ status: number; text: string }> {
+  const resp = await httpRequest(url, { ...options, headers: { Accept: "text/html", ...options.headers } });
+  return { status: resp.status, text: resp.body.toString("utf8") };
 }

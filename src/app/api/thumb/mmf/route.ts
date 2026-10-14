@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { mmfThumbnail } from "@/lib/mmfThumbs";
+import { proxied } from "@/lib/scrapers/common";
 
 export const dynamic = "force-dynamic";
 
@@ -14,7 +15,8 @@ export async function GET(request: NextRequest) {
     if (!url || !url.startsWith("https://")) {
       return new NextResponse("No image", { status: 404 });
     }
-    return NextResponse.redirect(url, {
+    // Through the image proxy: the host sends untyped images browsers block.
+    return NextResponse.redirect(new URL(proxied(url), request.url), {
       status: 302,
       headers: { "Cache-Control": "public, max-age=604800" },
     });
