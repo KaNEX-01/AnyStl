@@ -69,6 +69,11 @@ if ! command -v node >/dev/null 2>&1; then
   exit 1
 fi
 
+if ! command -v npm >/dev/null 2>&1; then
+  echo "npm is required but was not found. Install it (e.g. 'sudo pacman -S npm' on Arch)." >&2
+  exit 1
+fi
+
 if [ ! -x node_modules/.bin/next ]; then
   echo "→ Installing dependencies (first run, ~1 min)..."
   npm install
