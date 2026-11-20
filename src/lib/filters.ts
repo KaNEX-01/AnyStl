@@ -20,7 +20,7 @@ export const DEFAULT_FILTERS: ResultFilters = {
  * Sites that sell models, so a result without a price label isn't
  * necessarily free. Yeggi is here because it lists Cults3D / Gambody too.
  */
-const MARKETPLACES = new Set<Platform>(["cgtrader", "turbosquid", "free3d", "blenderkit", "yeggi"]);
+const MARKETPLACES = new Set<Platform>(["cgtrader", "cults3d", "turbosquid", "free3d", "blenderkit", "yeggi"]);
 
 export function isFree(m: ModelResult): boolean {
   if (m.price) return m.price === "Free";

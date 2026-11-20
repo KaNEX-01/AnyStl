@@ -1,19 +1,21 @@
 "use client";
 
-import { EXTERNAL_SEARCHES, PLATFORMS } from "@/lib/platforms";
+import { EXTERNAL_SEARCHES, OPTIONAL_SEARCH_PLATFORMS, PLATFORMS } from "@/lib/platforms";
 import { Platform } from "@/lib/types";
 
 interface Props {
   query: string;
   /** Sources that failed this search; offered as links too when they have one. */
   failed?: Platform[];
+  searched?: Platform[];
 }
 
-/** Links that run the current search on sites AnyStl can't reach itself. */
-export function ExternalSearchLinks({ query, failed = [] }: Props) {
+/** Links that run the current search directly on the provider's site. */
+export function ExternalSearchLinks({ query, failed = [], searched = [] }: Props) {
   if (!query) return null;
+  const externalPlatforms = [...new Set([...failed, ...OPTIONAL_SEARCH_PLATFORMS.filter((p) => !searched.includes(p))])];
   const links = [
-    ...failed.flatMap((p) => {
+    ...externalPlatforms.flatMap((p) => {
       const url = PLATFORMS[p].searchUrl;
       return url ? [{ name: PLATFORMS[p].name, url }] : [];
     }),
@@ -21,7 +23,7 @@ export function ExternalSearchLinks({ query, failed = [] }: Props) {
   ];
   return (
     <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[13px]">
-      <span className="text-spool-muted">Not searched here:</span>
+      <span className="text-spool-muted">Search directly on:</span>
       {links.map(({ name, url }) => (
         <a
           key={name}

@@ -10,7 +10,7 @@ export interface GroupInfo {
 
 /** Sites grouped by what they're for, in display order. */
 export const GROUPS: GroupInfo[] = [
-  { id: "community", name: "Community", description: "Free print models shared by makers" },
+  { id: "community", name: "Community", description: "Print models shared by makers" },
   { id: "brand", name: "Printer brands", description: "Libraries run by Bambu Lab, Creality and Anycubic" },
   { id: "cad", name: "CAD & engineering", description: "Parts, mechanisms and CAD designs" },
   { id: "general", name: "3D assets & Blender", description: "Blender, game and render models — not always print-ready" },
@@ -23,12 +23,16 @@ export interface PlatformInfo {
   /** Badge label shown on model cards. */
   label: string;
   /** Short description of what the Featured section shows for this site. */
-  featuredLabel: string;
+  featuredLabel?: string;
   /** The site's own search, offered as a link when AnyStl can't reach the site. */
   searchUrl?: (query: string) => string;
   /** The site's "filament" colour: badge dot, card strip and filter swatch. */
   color: string;
 }
+
+export const cults3dSearchUrl = (q: string) => `https://cults3d.com/en/search?q=${encodeURIComponent(q)}`;
+export const commonsStlQuery = (q: string) => `${q} filetype:3d`;
+export const OPTIONAL_SEARCH_PLATFORMS = ["cults3d", "traceparts"] as const;
 
 export const PLATFORMS: Record<Platform, PlatformInfo> = {
   makerworld: {
@@ -81,6 +85,13 @@ export const PLATFORMS: Record<Platform, PlatformInfo> = {
     label: "GRABCAD",
     featuredLabel: "Popular",
     color: "#A3E635",
+  },
+  traceparts: {
+    group: "cad",
+    name: "TraceParts",
+    label: "TRACEPARTS",
+    searchUrl: (q) => `https://www.traceparts.com/en/search?Keywords=${encodeURIComponent(q)}&SearchAction=Keywords`,
+    color: "#84CC16",
   },
   tinkercad: {
     group: "cad",
@@ -148,6 +159,20 @@ export const PLATFORMS: Record<Platform, PlatformInfo> = {
     searchUrl: (q) => `https://www.myminifactory.com/search?query=${encodeURIComponent(q)}`,
     color: "#7DD3FC",
   },
+  cults3d: {
+    group: "community",
+    name: "Cults3D",
+    label: "CULTS3D",
+    searchUrl: cults3dSearchUrl,
+    color: "#C084FC",
+  },
+  wikimedia: {
+    group: "general",
+    name: "Wikimedia Commons",
+    label: "WIKIMEDIA COMMONS",
+    searchUrl: (q) => `https://commons.wikimedia.org/w/index.php?title=Special:Search&ns6=1&search=${encodeURIComponent(commonsStlQuery(q))}`,
+    color: "#2DD4BF",
+  },
   turbosquid: {
     group: "general",
     name: "TurboSquid",
@@ -193,16 +218,11 @@ export const PLATFORM_ORDER = GROUPS.flatMap((g) =>
   (Object.keys(PLATFORMS) as Platform[]).filter((p) => PLATFORMS[p].group === g.id),
 );
 
-export function platformsInGroup(group: GroupId): Platform[] {
-  return PLATFORM_ORDER.filter((p) => PLATFORMS[p].group === group);
-}
-
 /**
  * Sites AnyStl can't search directly (they require solving a CAPTCHA), offered
  * as links that run the same search in the user's own browser.
  */
 export const EXTERNAL_SEARCHES: Array<{ name: string; url: (query: string) => string }> = [
-  { name: "Cults3D", url: (q) => `https://cults3d.com/en/search?q=${encodeURIComponent(q)}` },
   { name: "Fab", url: (q) => `https://www.fab.com/search?q=${encodeURIComponent(q)}` },
   { name: "STLFinder", url: (q) => `https://www.stlfinder.com/3dmodels/${encodeURIComponent(q.trim().replace(/\s+/g, "-"))}/` },
 ];

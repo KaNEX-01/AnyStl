@@ -226,6 +226,9 @@ const cache = new Map<string, { at: number; details: ModelDetails }>();
 const CACHE_TTL_MS = 6 * 60 * 60 * 1000;
 
 export async function getDetails(url: string, platform: Platform): Promise<ModelDetails> {
+  if (platform === "traceparts") {
+    return { url, images: [], formats: [], description: "See TraceParts for available CAD formats, part variants and downloads." };
+  }
   const hit = cache.get(url);
   if (hit && Date.now() - hit.at < CACHE_TTL_MS) return hit.details;
 

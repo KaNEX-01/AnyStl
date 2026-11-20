@@ -1,11 +1,41 @@
 import { Page } from "playwright";
 import { ModelResult, Platform } from "../types";
 import { gotoPastChallenge } from "../browser";
-import { finalize, proxied } from "./common";
+import { finalize, proxied, RESULT_LIMIT } from "./common";
+import { apiObject, optionalApiSearch, providerImage, providerUrl } from "./optionalApi";
 
 const PLATFORM: Platform = "cgtrader";
 // Each result card; its data-attributes JSON carries id, title and price.
 const CARD = ".card-3d-model[data-attributes]";
+const MODEL_HOSTS = ["www.cgtrader.com", "cgtrader.com"];
+const IMAGE_HOSTS = ["img-new.cgtrader.com", "media.cgtrader.com"];
+
+function apiModel(raw: unknown): ModelResult | null {
+  const model = apiObject(raw);
+  if (!model || typeof model.title !== "string" || !model.title.trim()) return null;
+  const url = providerUrl(model.url, MODEL_HOSTS);
+  if (!url || !/^\/(?:3d-models|3d-print-models|free-3d-models)\/.+/.test(url.pathname)) return null;
+  url.search = "";
+  url.hash = "";
+
+  const thumbnails = Array.isArray(model.thumbnails) ? model.thumbnails : [];
+  const thumbnail = thumbnails.map((image) => providerImage(image, IMAGE_HOSTS)).find(Boolean) || "";
+  const amount = apiObject(model.prices)?.download;
+  const price = typeof amount === "number" && Number.isFinite(amount) && amount >= 0
+    ? (amount === 0 ? "Free" : `$${amount}`)
+    : undefined;
+  const result = finalize({ title: model.title.trim(), url: url.href, thumbnail, likes: 0, downloads: null, platform: PLATFORM, price });
+  if (typeof model.ai_generated === "boolean") result.isAI = model.ai_generated;
+  return result;
+}
+
+export function searchCgTraderApi(query: string, pageNo: number): Promise<ModelResult[] | null> {
+  const token = process.env.CGTRADER_ACCESS_TOKEN?.trim();
+  if (!token) return Promise.resolve(null);
+  const url = new URL("https://api.cgtrader.com/v1/models");
+  url.search = new URLSearchParams({ keywords: query, page: String(pageNo), per_page: String(RESULT_LIMIT), sort: "best_match" }).toString();
+  return optionalApiSearch("CGTrader", url, "models", apiModel, { Authorization: `Bearer ${token}` });
+}
 
 async function scrapeListing(page: Page, url: string): Promise<ModelResult[]> {
   // The first visit gets an AWS WAF check that clears itself with JS.

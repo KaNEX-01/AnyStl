@@ -58,6 +58,7 @@ export default function FeaturedPage() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const { enabled } = useSourceFilter();
+  const sections = data?.sections.filter((section) => enabled.includes(section.platform));
 
   const load = useCallback((refresh: boolean) => {
     fetchFeatured(refresh)
@@ -113,13 +114,13 @@ export default function FeaturedPage() {
 
       {error && <p className="py-10 text-center text-sm text-[#FCA5A5]">{error}</p>}
 
-      {data && (
+      {sections?.length === 0 && <p className="text-sm text-spool-muted">Enable a site that supports Featured to see its models.</p>}
+
+      {!!sections?.length && (
         <div className={`space-y-16 transition-opacity ${loading ? "opacity-50" : ""}`}>
           {GROUPS.map((group) => {
-            const sections = data.sections.filter(
-              (s) => PLATFORMS[s.platform].group === group.id && enabled.includes(s.platform),
-            );
-            if (sections.length === 0) return null;
+            const groupSections = sections.filter((s) => PLATFORMS[s.platform].group === group.id);
+            if (groupSections.length === 0) return null;
             return (
               <div key={group.id} id={`group-${group.id}`}>
                 <div className="mb-7 border-b border-spool-line-soft pb-3">
@@ -127,7 +128,7 @@ export default function FeaturedPage() {
                   <p className="text-sm text-spool-muted">{group.description}</p>
                 </div>
                 <div className="space-y-12">
-                  {sections.map((section) => (
+                  {groupSections.map((section) => (
                     <Section key={section.platform} section={section} />
                   ))}
                 </div>

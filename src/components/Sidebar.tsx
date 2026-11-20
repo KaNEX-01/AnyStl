@@ -7,7 +7,7 @@ import { useSaved } from "@/lib/useSaved";
 import { useViewed } from "@/lib/useViewed";
 import { useSearchProgress } from "@/lib/useResultCounts";
 import { useSourceFilter } from "@/lib/useSourceFilter";
-import { PLATFORM_ORDER } from "@/lib/platforms";
+import { PLATFORMS } from "@/lib/platforms";
 import { SourceFilter } from "./SourceFilter";
 import { LogoMark } from "./LogoMark";
 
@@ -63,11 +63,12 @@ function NavLinks({ vertical }: { vertical?: boolean }) {
 export function Sidebar() {
   const pathname = usePathname();
   const progress = useSearchProgress();
-  const { enabled } = useSourceFilter();
+  const { available, isEnabled } = useSourceFilter();
   const [filterOpen, setFilterOpen] = useState(false);
   // The filter applies to searching and to Featured; Saved has its own chips.
   const showFilter = pathname === "/" || pathname === "/featured";
-  const filter = <SourceFilter progress={pathname === "/" ? progress : null} />;
+  const platforms = pathname === "/featured" ? available.filter((p) => PLATFORMS[p].featuredLabel) : available;
+  const filter = <SourceFilter platforms={platforms} progress={pathname === "/" ? progress : null} />;
 
   return (
     <>
@@ -94,7 +95,7 @@ export function Sidebar() {
                 filterOpen ? "bg-spool-accent text-spool-side" : "bg-spool-chip text-spool-text"
               }`}
             >
-              Sites <span className="font-mono text-xs opacity-80">{enabled.length}/{PLATFORM_ORDER.length}</span>
+              Sites <span className="font-mono text-xs opacity-80">{platforms.filter(isEnabled).length}/{platforms.length}</span>
             </button>
           )}
         </div>

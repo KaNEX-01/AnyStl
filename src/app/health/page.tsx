@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { LogoLoader } from "@/components/LogoLoader";
 import { SpoolDot } from "@/components/PlatformIcon";
-import { GROUPS, PLATFORMS, platformsInGroup } from "@/lib/platforms";
+import { GROUPS, PLATFORMS } from "@/lib/platforms";
+import { useSearchPlatforms } from "@/lib/useSourceFilter";
 import { HealthCheckEvent, Platform, SiteCheck, SiteHealth } from "@/lib/types";
 
 const toolButton =
@@ -99,6 +100,7 @@ function SiteRow({ platform, site, checking, now }: { platform: Platform; site?:
 }
 
 export default function HealthPage() {
+  const platforms = useSearchPlatforms();
   const [sites, setSites] = useState<Partial<Record<Platform, SiteHealth>>>({});
   const [checking, setChecking] = useState<Set<Platform>>(new Set());
   const [now, setNow] = useState(() => Date.now());
@@ -123,7 +125,7 @@ export default function HealthPage() {
   }, [refresh]);
 
   const runCheck = async () => {
-    setChecking(new Set(Object.keys(PLATFORMS) as Platform[]));
+    setChecking(new Set(platforms));
     const done = (p: Platform) =>
       setChecking((s) => {
         const next = new Set(s);
@@ -171,7 +173,7 @@ export default function HealthPage() {
         <div>
           <h1 className="text-3xl font-bold tracking-tight text-spool-text">Site health</h1>
           <p className="mt-1 max-w-2xl text-[15px] text-spool-muted">
-            How each site has answered since AnyStl started. <em>Run check</em> runs a test search (“vase”) on every site: a site
+            How each site has answered since AnyStl started. <em>Run check</em> runs a test search or catalog check on every available site: a site
             that answers with nothing, or with results missing images or titles, has probably changed its pages and its
             scraper needs fixing.
           </p>
@@ -206,7 +208,7 @@ export default function HealthPage() {
                   {g.name}
                 </td>
               </tr>
-              {platformsInGroup(g.id).map((p) => (
+              {platforms.filter((p) => PLATFORMS[p].group === g.id).map((p) => (
                 <SiteRow key={p} platform={p} site={sites[p]} checking={checking.has(p)} now={now} />
               ))}
             </tbody>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useSyncExternalStore } from "react";
+import { createContext, useContext, useMemo, useSyncExternalStore } from "react";
 import { PLATFORM_ORDER } from "./platforms";
 import { Platform } from "./types";
 
@@ -8,6 +8,11 @@ import { Platform } from "./types";
 const STORAGE_KEY = "anystl-disabled-sources";
 const CHANGE_EVENT = "anystl-sources-change";
 const NONE: Platform[] = [];
+export const SearchPlatformsContext = createContext(PLATFORM_ORDER);
+
+export function useSearchPlatforms() {
+  return useContext(SearchPlatformsContext);
+}
 
 let cachedRaw: string | null = null;
 let cachedDisabled: Platform[] = NONE;
@@ -49,44 +54,49 @@ function writeDisabled(disabled: Platform[]) {
   window.dispatchEvent(new Event(CHANGE_EVENT));
 }
 
+function enabledPlatforms(available: Platform[], disabled: Platform[]) {
+  const enabled = available.filter((p) => !disabled.includes(p));
+  // If the last enabled provider was removed from the server configuration,
+  // fall back to all available ones instead of leaving search unusable.
+  return enabled.length ? enabled : available;
+}
+
 /**
  * Calls `listener` with the new list of enabled sites whenever the selection
  * changes (in this tab or another). Returns an unsubscribe function.
  */
-export function onSourcesChanged(listener: (enabled: Platform[]) => void): () => void {
+export function onSourcesChanged(available: Platform[], listener: (enabled: Platform[]) => void): () => void {
   return subscribe(() => {
     const disabled = readDisabled();
-    listener(PLATFORM_ORDER.filter((p) => !disabled.includes(p)));
+    listener(enabledPlatforms(available, disabled));
   });
 }
 
 /** Which sites the user wants to search, remembered across visits. */
 export function useSourceFilter() {
+  const available = useSearchPlatforms();
   const disabled = useSyncExternalStore(subscribe, readDisabled, () => NONE);
-  const enabled = useMemo(() => PLATFORM_ORDER.filter((p) => !disabled.includes(p)), [disabled]);
+  const enabled = useMemo(() => enabledPlatforms(available, disabled), [available, disabled]);
 
   /**
    * Turns the given sites on or off together (a whole group, or one site).
    * Returns the resulting enabled list.
    */
   const setEnabled = (platforms: Platform[], on: boolean): Platform[] => {
+    const current = disabled.filter((p) => !enabled.includes(p));
     const next = on
-      ? disabled.filter((p) => !platforms.includes(p))
-      : [...new Set([...disabled, ...platforms])];
+      ? current.filter((p) => !platforms.includes(p))
+      : [...new Set([...current, ...platforms])];
     // Never allow turning everything off; there'd be nothing to search.
-    if (next.length >= PLATFORM_ORDER.length) return enabled;
+    if (available.every((p) => next.includes(p))) return enabled;
     writeDisabled(next);
-    return PLATFORM_ORDER.filter((p) => !next.includes(p));
+    return available.filter((p) => !next.includes(p));
   };
 
   return {
     enabled,
-    isEnabled: (p: Platform) => !disabled.includes(p),
-    allEnabled: disabled.length === 0,
+    available,
+    isEnabled: (p: Platform) => enabled.includes(p),
     setEnabled,
-    enableAll: (): Platform[] => {
-      writeDisabled([]);
-      return PLATFORM_ORDER;
-    },
   };
 }

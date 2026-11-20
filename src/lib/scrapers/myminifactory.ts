@@ -3,10 +3,13 @@ import os from "node:os";
 import path from "node:path";
 import { ModelResult, Platform } from "../types";
 import { fetchText, finalize, pageOffset, RESULT_LIMIT } from "./common";
+import { apiObject, optionalApiSearch, providerImage, providerUrl } from "./optionalApi";
 
 const PLATFORM: Platform = "myminifactory";
 const SITEMAP_INDEX = "https://www.myminifactory.com/sitemap.xml";
 const OBJECT_BASE = "https://www.myminifactory.com/object/";
+const MODEL_HOSTS = ["www.myminifactory.com", "myminifactory.com"];
+const IMAGE_HOSTS = ["assets.myminifactory.com", "cdn.myminifactory.com"];
 
 // MyMiniFactory's search sits behind an interactive bot check, but its
 // sitemaps (published for search engines) list every model's URL, and
@@ -90,6 +93,10 @@ function parseSlug(slug: string): { words: string[]; id: number } {
   return { words, id };
 }
 
+function sitemapThumbnail(slug: string): string {
+  return `/api/thumb/mmf?slug=${encodeURIComponent(slug)}`;
+}
+
 function toResult(slug: string): ModelResult {
   const { words } = parseSlug(slug);
   const title = words.join(" ").replace(/\b\w/g, (c) => c.toUpperCase());
@@ -97,7 +104,7 @@ function toResult(slug: string): ModelResult {
     title: title || slug,
     url: OBJECT_BASE + slug,
     // Looked up lazily from the model page when the card is shown.
-    thumbnail: `/api/thumb/mmf?slug=${encodeURIComponent(slug)}`,
+    thumbnail: sitemapThumbnail(slug),
     likes: 0,
     downloads: null,
     platform: PLATFORM,
@@ -105,6 +112,45 @@ function toResult(slug: string): ModelResult {
 }
 
 const isClean = (words: string[]) => !words.some((w) => ADULT_WORDS.has(w));
+
+function apiModel(raw: unknown): ModelResult | null {
+  const model = apiObject(raw);
+  if (!model || typeof model.name !== "string" || !model.name.trim()) return null;
+  const url = providerUrl(model.url, MODEL_HOSTS);
+  const slug = url?.pathname.match(/^\/object\/([a-z0-9][a-z0-9%-]*)\/?$/i)?.[1];
+  if (!slug) return null;
+
+  const images = Array.isArray(model.images) ? model.images.map(apiObject) : [];
+  const primary = images.find((image) => image?.is_primary === true);
+  const thumbnail = [primary, ...images].map((image) =>
+    providerImage(apiObject(image?.standard)?.url, IMAGE_HOSTS) ||
+    providerImage(apiObject(image?.thumbnail)?.url, IMAGE_HOSTS),
+  ).find(Boolean) || (/^[a-z0-9-]{1,300}$/.test(slug) ? sitemapThumbnail(slug) : "");
+
+  return finalize({
+    title: model.name.trim(),
+    url: OBJECT_BASE + slug,
+    thumbnail,
+    likes: typeof model.likes === "number" && Number.isSafeInteger(model.likes) && model.likes >= 0 ? model.likes : 0,
+    downloads: null,
+    platform: PLATFORM,
+    // This endpoint doesn't document a price. Don't claim API listings are free.
+    price: "Price unknown",
+  });
+}
+
+export async function searchMyMiniFactoryApi(query: string, pageNo: number): Promise<ModelResult[] | null> {
+  const key = process.env.MYMINIFACTORY_API_KEY?.trim();
+  if (!key) return null;
+  const url = new URL("https://www.myminifactory.com/api/v2/search");
+  url.search = new URLSearchParams({ q: query, page: String(pageNo), per_page: String(RESULT_LIMIT), key }).toString();
+  const results = await optionalApiSearch("MyMiniFactory", url, "items", apiModel);
+  if (!results) return null;
+  const clean = results.filter((model) => isClean(model.title.toLowerCase().split(/[^a-z0-9]+/)) &&
+    isClean(parseSlug(model.url.slice(OBJECT_BASE.length)).words));
+  // An entirely filtered page isn't proof that later results don't exist.
+  return results.length && !clean.length ? null : clean;
+}
 
 export async function searchMyMiniFactory(query: string, pageNo = 1): Promise<ModelResult[]> {
   const terms = query.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);

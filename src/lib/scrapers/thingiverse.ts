@@ -1,10 +1,47 @@
 import { Page } from "playwright";
 import { ModelResult, Platform } from "../types";
 import { finalize, mergeUnique, pageRange } from "./common";
+import { apiObject, optionalApiSearch, providerImage } from "./optionalApi";
 
 const PLATFORM: Platform = "thingiverse";
 /** Thingiverse listing pages hold ~20 things, so one of our pages spans this many. */
 const NATIVE_PAGES_PER_PAGE = 2;
+/** Match the scraper's two ~20-result listing pages as closely as possible. */
+const API_PAGE_SIZE = 40;
+const IMAGE_HOSTS = ["cdn.thingiverse.com", "resize.thingiverse.com"];
+
+function apiCount(value: unknown): number | null {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ? value : null;
+}
+
+function toApiResult(raw: unknown): ModelResult | null {
+  const hit = apiObject(raw);
+  const id = hit && apiCount(hit.id);
+  const title = typeof hit?.name === "string" ? hit.name.trim() : "";
+  if (!hit || !id || !title) return null;
+
+  const result = finalize({
+    title,
+    url: `https://www.thingiverse.com/thing:${id}`,
+    thumbnail: providerImage(hit.thumbnail, IMAGE_HOSTS) || providerImage(hit.preview_image, IMAGE_HOSTS),
+    likes: apiCount(hit.like_count) ?? 0,
+    downloads: apiCount(hit.download_count),
+    platform: PLATFORM,
+  });
+  if (typeof hit.is_ai === "boolean") result.isAI = hit.is_ai;
+  return result;
+}
+
+/** A null result asks the caller to scrape. An empty list is a successful search. */
+export async function searchThingiverseApi(query: string, pageNo: number): Promise<ModelResult[] | null> {
+  const token = process.env.THINGIVERSE_ACCESS_TOKEN?.trim();
+  // Dot-only terms would be normalized as URL path segments.
+  if (!token || query === "." || query === "..") return null;
+
+  const params = new URLSearchParams({ type: "things", sort: "relevant", page: String(pageNo), per_page: String(API_PAGE_SIZE) });
+  const url = `https://api.thingiverse.com/search/${encodeURIComponent(query)}/?${params}`;
+  return optionalApiSearch("Thingiverse", url, "hits", toApiResult, { Authorization: `Bearer ${token}` });
+}
 
 /** Scrapes native pages for our page `pageNo`, one after another in the same tab. */
 async function scrapePages(page: Page, urlForPage: (n: number) => string, pageNo: number) {

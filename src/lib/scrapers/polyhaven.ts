@@ -20,7 +20,7 @@ let catalog: { at: number; assets: Array<[string, PolyHavenAsset]> } | null = nu
 
 async function getCatalog(): Promise<Array<[string, PolyHavenAsset]>> {
   if (!catalog || Date.now() - catalog.at > CATALOG_TTL_MS) {
-    const data = await fetchJson<Record<string, PolyHavenAsset>>(API_URL, {}, "Poly Haven API");
+    const data = await fetchJson<Record<string, PolyHavenAsset>>(API_URL, { headers: { "User-Agent": "AnyStl/0.1" } }, "Poly Haven API");
     catalog = { at: Date.now(), assets: Object.entries(data) };
   }
   return catalog.assets;

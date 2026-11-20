@@ -13,7 +13,6 @@ import { sortResults } from "@/lib/sorting";
 import { applyFilters, DEFAULT_FILTERS, mergeDuplicates, parseQuery, ResultFilters } from "@/lib/filters";
 import { streamSearch } from "@/lib/searchStream";
 import { readUrlState, writeUrlState } from "@/lib/urlState";
-import { PLATFORM_ORDER } from "@/lib/platforms";
 import { onSourcesChanged, useSourceFilter } from "@/lib/useSourceFilter";
 import { setSearchProgress, SourceState } from "@/lib/useResultCounts";
 import { ModelResult, Platform, SearchStreamEvent, SortOption } from "@/lib/types";
@@ -48,7 +47,7 @@ export default function Home() {
   const searchedSourcesRef = useRef<Platform[]>([]);
   const seenUrlsRef = useRef(new Set<string>());
 
-  const { enabled } = useSourceFilter();
+  const { available, enabled } = useSourceFilter();
   const { excludes } = useMemo(() => parseQuery(query), [query]);
 
   const allResults = useMemo(() => pages.flat(), [pages]);
@@ -71,9 +70,14 @@ export default function Home() {
     [allResults],
   );
   const failedSources = useMemo(
-    () => PLATFORM_ORDER.filter((p) => states[p] === "failed" && enabled.includes(p)),
+    () => enabled.filter((p) => states[p] === "failed"),
     [states, enabled],
   );
+  // TraceParts only covers the configured catalog. Offer its wider search if
+  // there were no catalog matches, but not just because the next page is empty.
+  const searchedPlatforms = enabled.filter((p) => p === "traceparts"
+    ? !!platformCounts[p]
+    : (states[p] === "ok" || states[p] === "empty"));
   const pendingCount = Object.values(states).filter((s) => s === "pending").length;
   const answeredCount = Object.keys(states).length - pendingCount;
 
@@ -102,7 +106,7 @@ export default function Home() {
     onSource: (e: Extract<SearchStreamEvent, { type: "source" }>, fresh: ModelResult[]) => void,
   ) => {
     setStates((prev) => ({ ...prev, ...Object.fromEntries(sources.map((p) => [p, "pending"])) }));
-    const all = sources.length === PLATFORM_ORDER.length;
+    const all = sources.length === available.length;
     await streamSearch(
       search,
       pageNo,
@@ -184,11 +188,11 @@ export default function Home() {
   });
   useEffect(
     () =>
-      onSourcesChanged((next) => {
+      onSourcesChanged(available, (next) => {
         const q = queryRef.current;
         if (q && next.some((p) => !searchedSourcesRef.current.includes(p))) handleSearchRef.current(q, next, false);
       }),
-    [],
+    [available],
   );
 
   // Open the search in the address bar on load, and follow back / forward.
@@ -276,7 +280,7 @@ export default function Home() {
           <div className="max-w-2xl">
             <h1 className="text-4xl font-bold tracking-tight text-spool-text sm:text-5xl">What are you printing today?</h1>
             <p className="mt-3 text-[15px] leading-relaxed text-spool-muted">
-              One search across {PLATFORM_ORDER.length} model sites: printing communities, printer-brand libraries, CAD
+              One search across {available.length} model sites: printing communities, printer-brand libraries, CAD
               collections and Blender / 3D asset stores. Pick which ones to load from the spools on the left. Add
               <span className="font-mono text-spool-text"> -word </span>to leave out results containing a word.
             </p>
@@ -302,18 +306,19 @@ export default function Home() {
         <div role="status" className="flex flex-col items-center justify-center gap-5 py-24 text-spool-muted">
           <LogoLoader size={88} />
           <p className="text-sm">
-            Searching {enabled.length === PLATFORM_ORDER.length ? "all" : enabled.length} sites...
+            Searching {enabled.length === available.length ? "all" : enabled.length} sites...
             {answeredCount > 0 && <span className="font-mono text-xs text-spool-dim"> {answeredCount} answered</span>}
           </p>
         </div>
       )}
 
-      {error && !isLoading && <p className="py-20 text-center text-sm text-[#FCA5A5]">{error}</p>}
+      {error && !isLoading && allResults.length > 0 && <p className="py-20 text-center text-sm text-[#FCA5A5]">{error}</p>}
 
-      {!isLoading && searched && allResults.length === 0 && !error && (
+      {!isLoading && searched && allResults.length === 0 && (
         <div className="flex flex-col items-center gap-4 py-20 text-center">
-          <p className="text-sm text-spool-muted">No results found. Try a different search term.</p>
-          <ExternalSearchLinks query={parseQuery(query).search} failed={failedSources} />
+          {error ? <p className="text-sm text-[#FCA5A5]">{error}</p>
+            : <p className="text-sm text-spool-muted">No results found. Try a different search term.</p>}
+          <ExternalSearchLinks query={parseQuery(query).search} failed={failedSources} searched={searchedPlatforms} />
         </div>
       )}
 
@@ -339,7 +344,7 @@ export default function Home() {
               </div>
             </div>
             <FilterBar value={filters} onChange={setFilters} excludes={excludes} />
-            {!isLoading && <ExternalSearchLinks query={parseQuery(query).search} failed={failedSources} />}
+            {!isLoading && <ExternalSearchLinks query={parseQuery(query).search} failed={failedSources} searched={searchedPlatforms} />}
           </div>
 
           {hiddenByFilters && (
@@ -374,6 +379,14 @@ export default function Home() {
 
       <footer className="mt-auto pt-10 text-center font-mono text-[11px] text-spool-dim">
         AnyStl · 3D model meta-search · not affiliated with any of the searched sites
+        {available.includes("traceparts") && (
+          <>
+            {" · CAD catalog "}
+            <a href="https://www.traceparts.com/" target="_blank" rel="noopener noreferrer" className="underline">
+              powered by TraceParts
+            </a>
+          </>
+        )}
       </footer>
     </main>
   );

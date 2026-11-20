@@ -1,6 +1,7 @@
 "use client";
 
-import { GROUPS, PLATFORMS, PLATFORM_ORDER, platformsInGroup } from "@/lib/platforms";
+import { GROUPS, PLATFORMS } from "@/lib/platforms";
+import type { Platform } from "@/lib/types";
 import { useSourceFilter } from "@/lib/useSourceFilter";
 import { SearchProgress } from "@/lib/useResultCounts";
 import { SpoolDot } from "./PlatformIcon";
@@ -8,30 +9,33 @@ import { SpoolDot } from "./PlatformIcon";
 interface Props {
   /** Per-site progress of the current search, shown next to each site. */
   progress?: SearchProgress | null;
+  platforms: Platform[];
 }
 
 /**
  * Sites grouped by purpose ("spools"); click a group to switch all of its
  * sites, or a single site. The search page reacts to changes itself.
  */
-export function SourceFilter({ progress }: Props) {
-  const { isEnabled, setEnabled, allEnabled, enableAll, enabled } = useSourceFilter();
+export function SourceFilter({ progress, platforms }: Props) {
+  const { isEnabled, setEnabled } = useSourceFilter();
+  const enabledCount = platforms.filter(isEnabled).length;
 
   return (
     <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between gap-3">
         <p className="font-mono text-xs text-spool-muted">
-          Spools · <span className="text-spool-text">{enabled.length}</span> of {PLATFORM_ORDER.length} loaded
+          Spools · <span className="text-spool-text">{enabledCount}</span> of {platforms.length} loaded
         </p>
-        {!allEnabled && (
-          <button onClick={() => enableAll()} className="text-xs font-medium text-spool-accent-soft hover:text-spool-text">
+        {enabledCount !== platforms.length && (
+          <button onClick={() => setEnabled(platforms, true)} className="text-xs font-medium text-spool-accent-soft hover:text-spool-text">
             Select all
           </button>
         )}
       </div>
 
       {GROUPS.map((group) => {
-        const sites = platformsInGroup(group.id);
+        const sites = platforms.filter((p) => PLATFORMS[p].group === group.id);
+        if (!sites.length) return null;
         const on = sites.filter(isEnabled).length;
         const state = on === 0 ? "off" : on === sites.length ? "on" : "some";
         return (
