@@ -15,6 +15,8 @@ const DISCONNECT_GRACE_MS = 2000;
 const INITIAL_CONNECT_TIMEOUT_MS = 30_000;
 
 const isWin = process.platform === 'win32';
+const nextCli = 'node_modules/next/dist/bin/next';
+const useDirectNext = existsSync(nextCli);
 const nextBin = isWin ? 'node_modules\\.bin\\next.cmd' : 'node_modules/.bin/next';
 
 // A few sites only let a "real", visible browser through. On Linux, give the
@@ -36,13 +38,18 @@ function startXvfb() {
 }
 startXvfb();
 
-const next = spawn(nextBin, ['start', '-p', String(PORT)], {
-  stdio: 'inherit',
-  shell: isWin,
-  // Put next-server in its own process group so we can signal it along
-  // with any scraper chromiums it spawns.
-  detached: !isWin,
-});
+const next = useDirectNext
+  ? spawn(process.execPath, [nextCli, 'start', '-p', String(PORT)], {
+      stdio: 'inherit',
+      detached: !isWin,
+    })
+  : spawn(nextBin, ['start', '-p', String(PORT)], {
+      stdio: 'inherit',
+      shell: isWin,
+      // Put next-server in its own process group so we can signal it along
+      // with any scraper chromiums it spawns.
+      detached: !isWin,
+    });
 
 let shuttingDown = false;
 let heartbeatEverConnected = false;
