@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { chromium, Browser, BrowserContext, Page } from "playwright";
 
 let browserInstance: Browser | null = null;
@@ -11,11 +12,21 @@ const LAUNCH_ARGS = [
   "--window-size=1920,1080",
 ];
 
+const LINUX_SYSTEM_BROWSERS = [
+  "/usr/bin/chromium",
+  "/usr/bin/chromium-browser",
+  "/usr/bin/google-chrome",
+  "/usr/bin/google-chrome-stable",
+  "/usr/bin/brave",
+  "/usr/bin/brave-browser",
+  "/usr/bin/microsoft-edge",
+];
+
 async function launchChromium(): Promise<Browser> {
   // Prefer Playwright's full Chromium ("new headless") build; fall back to
-  // system Chrome or Edge when Playwright's browser download is unavailable.
+  // system Chrome, Edge or Chromium when Playwright's browser is not installed.
   const channels: Array<"chromium" | "chrome" | "msedge"> =
-    process.platform === "win32" ? ["chromium", "chrome", "msedge"] : ["chromium", "chrome"];
+    process.platform === "win32" ? ["chromium", "chrome", "msedge"] : ["chromium", "chrome", "msedge"];
   let lastErr: unknown;
   for (const channel of channels) {
     try {
@@ -28,6 +39,21 @@ async function launchChromium(): Promise<Browser> {
       });
     } catch (err) {
       lastErr = err;
+    }
+  }
+  if (process.platform === "linux") {
+    for (const executablePath of LINUX_SYSTEM_BROWSERS) {
+      if (!existsSync(/*turbopackIgnore: true*/ executablePath)) continue;
+      try {
+        return await chromium.launch({
+          executablePath,
+          headless: true,
+          ignoreDefaultArgs: ["--enable-automation"],
+          args: LAUNCH_ARGS,
+        });
+      } catch (err) {
+        lastErr = err;
+      }
     }
   }
   throw lastErr;

@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { SLICER_PLATFORMS } from "@/lib/platforms";
+import { buildSlicerLink, isSlicerId, SLICERS } from "@/lib/settings";
+import { getSettings } from "@/lib/settingsStore";
 import { isLoopbackHost, isLoopbackOrigin, openInDesktopSlicer } from "@/lib/slicerOpen";
 import { Platform } from "@/lib/types";
 
@@ -7,7 +9,7 @@ export const dynamic = "force-dynamic";
 
 /**
  * Prepares a supported model's print files and dispatches the resulting
- * `orcaslicer://open?file=...` URI through the host OS handler.
+ * `<slicer>://open?file=...` URI through the host OS handler.
  * Restricted to loopback JSON POST requests so third-party pages cannot trigger it.
  */
 export async function POST(request: NextRequest) {
@@ -21,7 +23,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Expected application/json request body" }, { status: 415 });
   }
 
-  let body: { url?: unknown; platform?: unknown; title?: unknown };
+  let body: { url?: unknown; platform?: unknown; title?: unknown; slicer?: unknown };
   try {
     body = await request.json();
   } catch {
@@ -35,17 +37,33 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Missing or unsupported 'url' / 'platform'" }, { status: 400 });
   }
 
+  const slicer = isSlicerId(body.slicer) ? body.slicer : (await getSettings()).slicer;
+
   try {
     const { prepareForSlicer } = await import("@/lib/slicer");
     const file = await prepareForSlicer(url, platform, title);
     const fileUrl = new URL(file.url, request.nextUrl.origin).href;
-    const link = `orcaslicer://open?file=${encodeURIComponent(fileUrl)}`;
+    const link = buildSlicerLink(slicer, fileUrl);
+    if (!link) {
+      return NextResponse.json({
+        opened: false,
+        count: file.count,
+        fileUrl,
+        link: null,
+        slicer,
+        slicerName: SLICERS[slicer].shortName,
+        mode: "download",
+      });
+    }
     const dispatch = await openInDesktopSlicer(link);
     return NextResponse.json({
       opened: dispatch.opened,
       count: file.count,
       fileUrl,
       link,
+      slicer,
+      slicerName: SLICERS[slicer].shortName,
+      mode: "protocol",
       ...(dispatch.error ? { error: dispatch.error } : {}),
     });
   } catch (error) {

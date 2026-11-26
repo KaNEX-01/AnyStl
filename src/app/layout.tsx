@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { connection } from "next/server";
 import HeartbeatKeepalive from "@/components/HeartbeatKeepalive";
 import { ComparisonTray } from "@/components/ComparisonTray";
+import { OnboardingModal } from "@/components/OnboardingModal";
 import { OrcaWebViewStyle } from "@/components/OrcaWebViewStyle";
 import { Sidebar } from "@/components/Sidebar";
 import { PreviewModal } from "@/components/PreviewModal";
@@ -43,6 +44,7 @@ export default async function RootLayout({
           </div>
         </SearchPlatformsProvider>
         <PreviewModal />
+        <OnboardingModal />
       </body>
     </html>
   );

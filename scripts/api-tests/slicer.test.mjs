@@ -9,6 +9,7 @@ const { SLICER_PLATFORMS } = require(path.join(build, 'platforms.js'));
 const { pickFiles } = require(path.join(build, 'slicer.js'));
 const { isLoopbackHost, isLoopbackOrigin, openInDesktopSlicer } = require(path.join(build, 'slicerOpen.js'));
 const { resolveSlicerTarget } = require(path.join(build, 'sendToOrca.js'));
+const { buildSlicerLink, disabledPlatformsForPreset, isValidSlicerLink, sanitizeSettings } = require(path.join(build, 'settings.js'));
 
 test('SLICER_PLATFORMS includes keyless Printables, Thingiverse, MyMiniFactory and Wikimedia Commons', () => {
   assert.deepEqual(SLICER_PLATFORMS, ['printables', 'thingiverse', 'myminifactory', 'wikimedia']);
@@ -65,4 +66,39 @@ test('slicerOpen restricts direct desktop dispatch to loopback origins and valid
     assert.equal(noDisplay.opened, false);
     assert.match(noDisplay.error || '', /display/i);
   }
+});
+
+test('multi-slicer links and settings sanitization support OrcaSlicer, Bambu Studio, PrusaSlicer, Elegoo Slicer and direct download', () => {
+  const file = 'http://127.0.0.1:3000/api/slicer/file/abc/model.zip';
+  const orca = buildSlicerLink('orcaslicer', file);
+  const bambu = buildSlicerLink('bambustudio', file);
+  const prusa = buildSlicerLink('prusaslicer', file);
+  const elegoo = buildSlicerLink('elegooslicer', file);
+  const direct = buildSlicerLink('download', file);
+
+  assert.ok(orca?.startsWith('orcaslicer://open?file='));
+  assert.ok(bambu?.startsWith('bambustudio://open?file='));
+  assert.ok(prusa?.startsWith('prusaslicer://open?file='));
+  assert.ok(elegoo?.startsWith('elegooslicer://open?file='));
+  assert.equal(direct, null);
+
+  assert.equal(isValidSlicerLink(orca), true);
+  assert.equal(isValidSlicerLink(bambu), true);
+  assert.equal(isValidSlicerLink(prusa), true);
+  assert.equal(isValidSlicerLink(elegoo), true);
+  assert.equal(isValidSlicerLink('javascript:alert(1)'), false);
+
+  assert.deepEqual(sanitizeSettings({ onboardingDone: true, slicer: 'bambustudio', defaultPreset: 'printing' }), {
+    onboardingDone: true,
+    slicer: 'bambustudio',
+    defaultPreset: 'printing',
+  });
+  assert.deepEqual(sanitizeSettings({ onboardingDone: 'yes', slicer: 'unknown', defaultPreset: 'nope' }), {
+    onboardingDone: false,
+    slicer: 'orcaslicer',
+    defaultPreset: 'all',
+  });
+
+  const fastDisabled = disabledPlatformsForPreset('fast', ['printables', 'thingiverse', 'makerworld', 'yeggi']);
+  assert.deepEqual(fastDisabled, ['thingiverse', 'yeggi']);
 });

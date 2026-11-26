@@ -8,6 +8,8 @@ import { openPreview } from "@/lib/usePreview";
 import { recordViewed, useViewed } from "@/lib/useViewed";
 import { PLATFORMS } from "@/lib/platforms";
 import { isEmbeddedOrca, resolveSlicerTarget, sendModelToOrca } from "@/lib/sendToOrca";
+import { SLICERS } from "@/lib/settings";
+import { useSettings } from "@/lib/useSettings";
 import { PlatformBadge, SpoolDot } from "./PlatformIcon";
 import { CompareButton } from "./CompareButton";
 import { LogoLoader } from "./LogoLoader";
@@ -113,6 +115,9 @@ export function ModelCard({ model, selected, onSelect, onFindAlternatives }: Car
   const { license, formats } = useBadges(model);
   const saved = model as SavedModel;
   const { isViewed } = useViewed();
+  const { settings } = useSettings();
+  const slicerInfo = SLICERS[settings.slicer];
+  const isDownloadMode = settings.slicer === "download";
   const slicerTarget = !selecting && !embedded ? resolveSlicerTarget(model) : null;
   const siteName = model.via || PLATFORMS[model.platform].name;
   const [slicerState, setSlicerState] = useState<{
@@ -133,17 +138,20 @@ export function ModelCard({ model, selected, onSelect, onFindAlternatives }: Car
     }
     setSlicerState({ status: "busy" });
     try {
-      const result = await sendModelToOrca(model);
+      const result = await sendModelToOrca(model, settings.slicer);
       if (result.opened) {
         setSlicerState({
           status: "sent",
-          note: `Sent ${result.count} file${result.count === 1 ? "" : "s"} to OrcaSlicer`,
+          note:
+            result.mode === "download"
+              ? `Downloading ${result.count} file${result.count === 1 ? "" : "s"}`
+              : `Sent ${result.count} file${result.count === 1 ? "" : "s"} to ${result.slicerName}`,
           fileUrl: result.fileUrl,
         });
       } else {
         setSlicerState({
           status: "fallback",
-          note: result.error || "Could not launch OrcaSlicer automatically.",
+          note: result.error || `Could not launch ${result.slicerName} automatically.`,
           fileUrl: result.fileUrl,
         });
       }
@@ -295,11 +303,15 @@ export function ModelCard({ model, selected, onSelect, onFindAlternatives }: Car
                 aria-label={`Send to Slicer: ${model.title}`}
                 title={
                   slicerTarget
-                    ? slicerTarget.platform !== model.platform
-                      ? `Send straight to OrcaSlicer via ${PLATFORMS[slicerTarget.platform].name}`
-                      : slicerTarget.platform === "thingiverse"
-                        ? "Send model files straight to OrcaSlicer (~20 s)"
-                        : "Send model files straight to OrcaSlicer"
+                    ? isDownloadMode
+                      ? slicerTarget.platform === "thingiverse"
+                        ? "Download model files directly (~20 s)"
+                        : "Download model files directly"
+                      : slicerTarget.platform !== model.platform
+                        ? `Send straight to ${slicerInfo.shortName} via ${PLATFORMS[slicerTarget.platform].name}`
+                        : slicerTarget.platform === "thingiverse"
+                          ? `Send model files straight to ${slicerInfo.shortName} (~20 s)`
+                          : `Send model files straight to ${slicerInfo.shortName}`
                     : `${siteName} requires signing in to download — click to open download page`
                 }
                 className={`flex w-full min-w-0 items-center justify-center gap-1.5 overflow-hidden whitespace-nowrap px-3 py-2 text-xs font-medium transition-colors disabled:opacity-70 ${
@@ -317,16 +329,16 @@ export function ModelCard({ model, selected, onSelect, onFindAlternatives }: Car
                 {slicerState.status === "busy" ? (
                   <>
                     <LogoLoader size={13} />
-                    <span className="truncate">Sending…</span>
+                    <span className="truncate">{isDownloadMode ? "Preparing…" : "Sending…"}</span>
                   </>
                 ) : slicerState.status === "sent" ? (
-                  <span className="truncate">✓ Sent</span>
+                  <span className="truncate">{isDownloadMode ? "✓ Downloading" : "✓ Sent"}</span>
                 ) : (
                   <>
                     <svg className="h-3.5 w-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 3h6v5l-3 3-3-3V3zM12 11v6m0 0l-3-3m3 3l3-3M5 20h14" />
                     </svg>
-                    <span className="truncate">Send to Slicer</span>
+                    <span className="truncate">{isDownloadMode ? "Download Files" : "Send to Slicer"}</span>
                   </>
                 )}
               </button>

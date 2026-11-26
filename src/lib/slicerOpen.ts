@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { isValidSlicerLink } from "./settings";
 
 const LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost", "::1", "[::1]"]);
 
@@ -23,13 +24,12 @@ export interface DesktopOpenResult {
 }
 
 /**
- * Hands a validated `orcaslicer://open?file=...` URI to the host OS desktop
- * handler so the embedded OrcaSlicer plugin tab can open models without
- * navigating its WebView to a custom scheme.
+ * Hands a validated `<slicer>://open?file=...` URI to the host OS desktop
+ * handler so supported slicers can open models directly.
  */
 export async function openInDesktopSlicer(link: string): Promise<DesktopOpenResult> {
-  if (!link.startsWith("orcaslicer://open?file=")) {
-    return { opened: false, error: "Invalid OrcaSlicer link" };
+  if (!isValidSlicerLink(link)) {
+    return { opened: false, error: "Invalid slicer link" };
   }
 
   let command: string;
@@ -57,7 +57,7 @@ export async function openInDesktopSlicer(link: string): Promise<DesktopOpenResu
       resolve(result);
     };
 
-    const child = spawn(command, args, {
+    const child = spawn(/*turbopackIgnore: true*/ command, args, {
       shell: false,
       detached: true,
       stdio: "ignore",

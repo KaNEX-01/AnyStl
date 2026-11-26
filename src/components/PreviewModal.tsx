@@ -3,6 +3,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { PLATFORMS } from "@/lib/platforms";
 import { isEmbeddedOrca, resolveSlicerTarget, sendModelToOrca } from "@/lib/sendToOrca";
+import { SLICERS } from "@/lib/settings";
+import { useSettings } from "@/lib/useSettings";
 import { openPreview, usePreview } from "@/lib/usePreview";
 import { useDetails } from "@/lib/useDetails";
 import { getSavedModel, updateSaved, useSaved } from "@/lib/useSaved";
@@ -70,8 +72,11 @@ function SavedEditor({ url }: { url: string }) {
   );
 }
 
-/** Hands the model's print files to OrcaSlicer (sites that allow downloads without an account). */
+/** Hands the model's print files to the configured slicer (or downloads them directly). */
 function SlicerButton({ model }: { model: ModelResult }) {
+  const { settings } = useSettings();
+  const slicerInfo = SLICERS[settings.slicer];
+  const isDownloadMode = settings.slicer === "download";
   const [state, setState] = useState<{
     busy: boolean;
     message?: string;
@@ -87,11 +92,14 @@ function SlicerButton({ model }: { model: ModelResult }) {
     setCopyStatus("");
     setState((prev) => ({ ...prev, busy: true, message: undefined }));
     try {
-      const result = await sendModelToOrca(model);
+      const result = await sendModelToOrca(model, settings.slicer);
       if (result.opened) {
         setState({
           busy: false,
-          message: `Sent ${result.count} file${result.count === 1 ? "" : "s"} to OrcaSlicer.`,
+          message:
+            result.mode === "download"
+              ? `Downloading ${result.count} file${result.count === 1 ? "" : "s"}.`
+              : `Sent ${result.count} file${result.count === 1 ? "" : "s"} to ${result.slicerName}.`,
           file: result.fileUrl,
           showFile: false,
         });
@@ -126,14 +134,20 @@ function SlicerButton({ model }: { model: ModelResult }) {
         type="button"
         onClick={onClick}
         disabled={state.busy}
-        title="Downloads the model's STL / 3MF files straight into OrcaSlicer"
+        title={
+          isDownloadMode
+            ? "Downloads the model's STL / 3MF files directly to your computer"
+            : `Downloads the model's STL / 3MF files straight into ${slicerInfo.shortName}`
+        }
         className="flex h-10 items-center justify-center gap-2 rounded-xl border border-spool-line bg-spool-field px-4 text-sm font-medium text-spool-text transition-colors hover:border-spool-accent disabled:opacity-60"
       >
         {state.busy && <LogoLoader size={16} />}
         {state.busy
           ? // Thingiverse makes everyone sit through an ad countdown first.
             `Getting files${target.platform === "thingiverse" ? " (~20 s)" : ""}…`
-          : "Open in OrcaSlicer"}
+          : isDownloadMode
+            ? "Download model files"
+            : `Open in ${slicerInfo.shortName}`}
       </button>
       {state.message && (
         <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-spool-muted">

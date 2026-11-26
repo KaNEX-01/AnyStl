@@ -93,10 +93,19 @@ export function useSourceFilter() {
     return available.filter((p) => !next.includes(p));
   };
 
+  const applyDisabled = (nextDisabled: Platform[]): Platform[] => {
+    const cleaned = nextDisabled.filter((p) => available.includes(p));
+    // Never allow turning everything off; there'd be nothing to search.
+    if (available.every((p) => cleaned.includes(p))) return enabled;
+    writeDisabled(cleaned);
+    return available.filter((p) => !cleaned.includes(p));
+  };
+
   return {
     enabled,
     available,
     isEnabled: (p: Platform) => enabled.includes(p),
     setEnabled,
+    applyDisabled,
   };
 }

@@ -78,6 +78,7 @@ try {
       const url = new URL(route.request().url());
       if (url.origin !== base) return route.abort();
       if (url.pathname === '/api/warmup') return route.fulfill({ status: 204 });
+      if (url.pathname === '/api/settings') return route.fulfill({ json: { onboardingDone: true, slicer: 'orcaslicer', defaultPreset: 'all' } });
       if (url.pathname === '/api/search/stream') {
         assert.equal(url.searchParams.get('q'), 'fixture');
         assert.equal(url.searchParams.get('buffered'), embedded ? '1' : null);
