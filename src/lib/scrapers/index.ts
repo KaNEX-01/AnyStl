@@ -4,9 +4,9 @@ import { FeaturedResponse, FeaturedSection, HealthCheckEvent, ModelResult, Platf
 import { recordOutcome, siteHealth } from "../health";
 import { sortByScore } from "../scoring";
 import { PLATFORMS } from "../platforms";
-import { availableSearchPlatforms } from "../sourceAvailability";
+import { availableSearchPlatforms, noBrowserMode } from "../sourceAvailability";
 import { mergeUnique } from "./common";
-import { featuredMakerWorld, searchMakerWorld } from "./makerworld";
+import { featuredMakerWorld, searchMakerWorld, searchMakerWorldApi } from "./makerworld";
 import { featuredPrintables, searchPrintables } from "./printables";
 import { featuredThingiverse, searchThingiverse, searchThingiverseApi } from "./thingiverse";
 import { featuredCreality, searchCreality } from "./creality";
@@ -15,7 +15,7 @@ import { featuredSketchfab, searchSketchfab } from "./sketchfab";
 import { featuredGrabCad, searchGrabCad } from "./grabcad";
 import { featuredTinkercad, searchTinkercad } from "./tinkercad";
 import { featuredPinshape, searchPinshape } from "./pinshape";
-import { featuredThangs, searchThangs } from "./thangs";
+import { featuredThangs, searchThangs, searchThangsApi } from "./thangs";
 import { featuredYeggi, searchYeggi } from "./yeggi";
 import { featuredNexprint, searchNexprint } from "./nexprint";
 import { featuredCgTrader, searchCgTrader, searchCgTraderApi } from "./cgtrader";
@@ -30,6 +30,7 @@ import { featuredFree3d, searchFree3d } from "./free3d";
 import { searchCults3d } from "./cults3d";
 import { searchWikimedia } from "./wikimedia";
 import { searchTraceParts } from "./traceparts";
+import { searchViaSearxng, searxngBaseUrl, supportsSearxng } from "./searxng";
 
 export interface SearchResult {
   results: ModelResult[];
@@ -69,7 +70,7 @@ const breaker = new Map<Platform, { failures: number; openUntil: number }>();
 const isBlockage = (err: unknown) => /bot check|timed out|didn't load/i.test(err instanceof Error ? err.message : String(err));
 
 const SOURCES: Source[] = [
-  { platform: "makerworld", needsBrowser: true, search: searchMakerWorld, featured: featuredMakerWorld, warmupUrl: "https://makerworld.com/en" },
+  { platform: "makerworld", needsBrowser: true, search: searchMakerWorld, searchApi: searchMakerWorldApi, featured: featuredMakerWorld, warmupUrl: "https://makerworld.com/en" },
   { platform: "thingiverse", needsBrowser: true, search: searchThingiverse, searchApi: searchThingiverseApi, featured: featuredThingiverse },
   { platform: "printables", needsBrowser: false, search: (_, q, n) => searchPrintables(q, n), featured: featuredPrintables },
   { platform: "creality", needsBrowser: false, search: (_, q, n) => searchCreality(q, n), featured: featuredCreality },
@@ -78,7 +79,7 @@ const SOURCES: Source[] = [
   { platform: "grabcad", needsBrowser: false, search: (_, q, n) => searchGrabCad(q, n), featured: featuredGrabCad },
   { platform: "tinkercad", needsBrowser: false, search: (_, q, n) => searchTinkercad(q, n), featured: featuredTinkercad },
   { platform: "pinshape", needsBrowser: false, search: (_, q, n) => searchPinshape(q, n), featured: featuredPinshape },
-  { platform: "thangs", needsBrowser: true, search: searchThangs, featured: featuredThangs, warmupUrl: "https://thangs.com/" },
+  { platform: "thangs", needsBrowser: true, search: searchThangs, searchApi: searchThangsApi, featured: featuredThangs, warmupUrl: "https://thangs.com/" },
   { platform: "cgtrader", needsBrowser: true, search: searchCgTrader, searchApi: searchCgTraderApi, featured: featuredCgTrader, warmupUrl: "https://www.cgtrader.com/" },
   { platform: "blenderkit", needsBrowser: false, search: (_, q, n) => searchBlenderKit(q, n), featured: featuredBlenderKit },
   { platform: "blendswap", needsBrowser: false, search: (_, q, n) => searchBlendSwap(q, n), featured: featuredBlendSwap },
@@ -104,7 +105,30 @@ type WithPage = (task: (page: Page) => Promise<ModelResult[]>) => Promise<ModelR
 
 async function searchSource(source: Source, withPage: WithPage, query: string, pageNo: number): Promise<ModelResult[]> {
   const results = await source.searchApi?.(query, pageNo);
-  return results ?? withPage((page) => source.search(page, query, pageNo));
+  if (results !== null && results !== undefined) return results;
+
+  // Cults3D without API credentials can still use an opt-in SearXNG instance.
+  if (source.platform === "cults3d" && !process.env.CULTS3D_API_KEY?.trim()) {
+    const viaSearxng = await searchViaSearxng("cults3d", query, pageNo);
+    if (viaSearxng !== null) return viaSearxng;
+  }
+
+  // In API-only mode (ANYSTL_NO_BROWSER=1), never launch Playwright; use SearXNG if configured.
+  if (source.needsBrowser && noBrowserMode()) {
+    const viaSearxng = await searchViaSearxng(source.platform, query, pageNo);
+    if (viaSearxng !== null) return viaSearxng;
+    throw new Error("skipped in API-only mode (ANYSTL_NO_BROWSER=1)");
+  }
+
+  try {
+    return await withPage((page) => source.search(page, query, pageNo));
+  } catch (err) {
+    if (source.needsBrowser && searxngBaseUrl() && supportsSearxng(source.platform)) {
+      const viaSearxng = await searchViaSearxng(source.platform, query, pageNo).catch(() => null);
+      if (viaSearxng !== null) return viaSearxng;
+    }
+    throw err;
+  }
 }
 
 /** Runs tasks in parallel, opening a page only when required by the task. */
@@ -122,8 +146,9 @@ async function runAll(
       const skipped = remaining > 0
         ? new Error(`skipped for ${Math.ceil(remaining / 60_000)} min, the site keeps blocking automated searches`)
         : null;
-      // A blocked scraper shouldn't prevent its independent API from recovering.
-      if (skipped && (!source.searchApi || kind === "featured")) {
+      // A blocked scraper shouldn't prevent its independent API or SearXNG fallback from recovering.
+      const hasApiPath = !!source.searchApi || (searxngBaseUrl() !== null && supportsSearxng(source.platform));
+      if (skipped && (!hasApiPath || kind === "featured")) {
         onSettled?.(source.platform, { status: "rejected", reason: skipped });
         throw skipped;
       }
@@ -253,15 +278,30 @@ export async function searchStream(
 /** A query every site has plenty of results for. */
 const CHECK_QUERY = "vase";
 
+/** Clears the automatic block cooldown for one site, or for all sites when omitted. */
+export function resetSiteBreaker(platform?: Platform): void {
+  if (platform) breaker.delete(platform);
+  else breaker.clear();
+}
+
 /**
- * Searches every site for a common word and reports each as it answers, to
- * tell sites that are down or blocking from scrapers broken by a redesign.
+ * Searches every site (or only the requested ones) for a common word and reports
+ * each as it answers, to tell sites that are down or blocking from scrapers
+ * broken by a redesign.
  */
-export async function checkSites(onSite: (event: HealthCheckEvent) => void): Promise<void> {
-  await runAll("check", (source, withPage) => searchSource(source, withPage, source.checkQuery ?? CHECK_QUERY, 1), searchSources(), (platform, result, check) => {
-    if (check) onSite({ type: "site", platform, check });
-    else if (result.status === "rejected") onSite({ type: "skipped", platform, error: String(result.reason?.message || result.reason) });
-  }).catch(() => {});
+export async function checkSites(onSite: (event: HealthCheckEvent) => void, platforms?: Platform[]): Promise<void> {
+  if (platforms?.length) {
+    for (const p of platforms) breaker.delete(p);
+  }
+  await runAll(
+    "check",
+    (source, withPage) => searchSource(source, withPage, source.checkQuery ?? CHECK_QUERY, 1),
+    searchSources(platforms),
+    (platform, result, check) => {
+      if (check) onSite({ type: "site", platform, check });
+      else if (result.status === "rejected") onSite({ type: "skipped", platform, error: String(result.reason?.message || result.reason) });
+    },
+  ).catch(() => {});
 }
 
 /** Recent results per site, plus which ones are being skipped. */
@@ -311,6 +351,13 @@ let warmedUp: Promise<void> | null = null;
  * is still typing) so the first real search doesn't pay for the checks.
  */
 export function warmUpSources(): Promise<void> {
+  if (noBrowserMode()) {
+    warmedUp ??= getMyMiniFactoryIndex().then(() => {}).catch((err) => {
+      console.error("Warm-up failed:", err);
+      warmedUp = null;
+    });
+    return warmedUp;
+  }
   const urls = (headful: boolean) =>
     SOURCES.flatMap((s) => (s.warmupUrl && !!s.headful === headful ? [s.warmupUrl] : []));
   warmedUp ??= Promise.all([

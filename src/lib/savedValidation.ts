@@ -1,6 +1,7 @@
 import { PLATFORMS } from "./platforms";
 import { ModelResult, SavedModel } from "./types";
 import type { SavedPatch } from "./savedStore";
+import { toModelDimensions } from "./modelDimensions";
 
 function isModelResult(value: unknown): value is ModelResult {
   const m = value as ModelResult;
@@ -26,6 +27,9 @@ function strings(v: unknown, maxItems: number, maxLen: number): string[] | undef
 /** A model posted by the client, reduced to the fields AnyStl stores. */
 export function toModel(body: unknown): ModelResult | null {
   if (!isModelResult(body)) return null;
+  const license = str(body.license, 60);
+  const formats = strings(body.formats, 12, 8);
+  const dimensions = toModelDimensions(body.dimensions);
   return {
     title: body.title,
     url: body.url,
@@ -35,6 +39,9 @@ export function toModel(body: unknown): ModelResult | null {
     platform: body.platform,
     ...(typeof body.via === "string" ? { via: body.via.slice(0, 60) } : {}),
     ...(typeof body.price === "string" ? { price: body.price.slice(0, 20) } : {}),
+    ...(license ? { license } : {}),
+    ...(formats?.length ? { formats } : {}),
+    ...(dimensions ? { dimensions } : {}),
     isAI: !!body.isAI,
     score: Number(body.score) || 0,
   };

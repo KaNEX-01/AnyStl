@@ -35,6 +35,8 @@ function toResult([id, asset]: [string, PolyHavenAsset]): ModelResult {
     downloads: asset.download_count ?? null,
     platform: PLATFORM,
     price: "Free",
+    formats: ["BLEND", "GLTF", "FBX", "USD"],
+    license: "CC0 1.0",
   });
 }
 

@@ -1,5 +1,27 @@
 @import "tailwindcss";
 
+/* Keep native controls (selects, scrollbars) dark across WebKitGTK, Orca and browsers. */
+html.dark {
+  color-scheme: dark;
+}
+
+/* OrcaSlicer's GTK WebView can stop painting while compositing animated SVGs
+   and blurred overlays. Keep the embedded page on a simpler rendering path. */
+html[data-orca-theme] .anystl-loader,
+html[data-orca-theme] .anystl-loader *,
+html[data-orca-theme] .animate-pulse {
+  animation: none;
+}
+html[data-orca-theme] .anystl-loader .anystl-loader-edge {
+  stroke-dashoffset: 0;
+}
+html[data-orca-theme] .anystl-loader .anystl-loader-mesh {
+  opacity: 0.45;
+}
+html[data-orca-theme] :where([class*="backdrop-blur"]) {
+  backdrop-filter: none;
+}
+
 /* "Spool" theme: graphite surfaces, orange accent; each site gets its own
    filament colour (see platforms.ts). */
 @theme {

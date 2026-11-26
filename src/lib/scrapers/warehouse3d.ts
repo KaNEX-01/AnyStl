@@ -3,6 +3,7 @@ import { fetchJson, finalize, pageOffset, RESULT_LIMIT } from "./common";
 
 const PLATFORM: Platform = "warehouse3d";
 const API_URL = "https://3dwarehouse.sketchup.com/warehouse/v1.0/entities";
+const FILE_BINARIES = [["source_skp", "SKP"], ["glb", "GLB"], ["usdz", "USDZ"]] as const;
 
 interface WarehouseEntity {
   id: string;
@@ -47,6 +48,7 @@ async function query(params: Record<string, string>, pageNo: number): Promise<Mo
         downloads: e.downloads ?? null,
         platform: PLATFORM,
         price: "Free",
+        formats: FILE_BINARIES.flatMap(([key, format]) => e.binaries?.[key]?.contentUrl ? [format] : []),
       }),
     );
 }

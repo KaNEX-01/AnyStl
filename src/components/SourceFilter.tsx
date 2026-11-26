@@ -12,13 +12,34 @@ interface Props {
   platforms: Platform[];
 }
 
+const PRESETS: Array<{ id: string; label: string; title?: string; match: (p: Platform) => boolean }> = [
+  { id: "all", label: "All", match: () => true },
+  {
+    id: "fast",
+    label: "Fast (API)",
+    title: "Only direct API and plain HTTP sites — skips slower browser-scraped sites",
+    match: (p) => !PLATFORMS[p].browser,
+  },
+  { id: "print", label: "3D Printing", match: (p) => PLATFORMS[p].group === "community" || PLATFORMS[p].group === "brand" },
+  { id: "cad", label: "CAD", match: (p) => PLATFORMS[p].group === "cad" },
+  { id: "assets", label: "3D Assets", match: (p) => PLATFORMS[p].group === "general" },
+];
+
 /**
- * Sites grouped by purpose ("spools"); click a group to switch all of its
- * sites, or a single site. The search page reacts to changes itself.
+ * Sites grouped by purpose ("spools"); click a preset, a group to switch all
+ * of its sites, or a single site. The search page reacts to changes itself.
  */
 export function SourceFilter({ progress, platforms }: Props) {
   const { isEnabled, setEnabled } = useSourceFilter();
   const enabledCount = platforms.filter(isEnabled).length;
+
+  const applyPreset = (match: (p: Platform) => boolean) => {
+    const wanted = new Set(platforms.filter(match));
+    const turnOn = platforms.filter((p) => wanted.has(p) && !isEnabled(p));
+    const turnOff = platforms.filter((p) => !wanted.has(p) && isEnabled(p));
+    if (turnOn.length) setEnabled(turnOn, true);
+    if (turnOff.length) setEnabled(turnOff, false);
+  };
 
   return (
     <div className="flex flex-col gap-4">
@@ -31,6 +52,31 @@ export function SourceFilter({ progress, platforms }: Props) {
             Select all
           </button>
         )}
+      </div>
+
+      <div className="flex flex-wrap gap-1.5" role="group" aria-label="Source presets">
+        {PRESETS.map((preset) => {
+          const targets = platforms.filter(preset.match);
+          if (!targets.length) return null;
+          const active =
+            enabledCount === targets.length && targets.every((p) => isEnabled(p));
+          return (
+            <button
+              key={preset.id}
+              type="button"
+              title={preset.title}
+              onClick={() => applyPreset(preset.match)}
+              aria-pressed={active}
+              className={`rounded-lg px-2.5 py-1 text-xs font-medium transition-colors ${
+                active
+                  ? "bg-spool-accent/15 text-spool-accent-soft ring-1 ring-inset ring-spool-accent/50"
+                  : "bg-spool-chip text-spool-muted hover:text-spool-text"
+              }`}
+            >
+              {preset.label}
+            </button>
+          );
+        })}
       </div>
 
       {GROUPS.map((group) => {

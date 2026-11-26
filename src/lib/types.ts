@@ -1,3 +1,5 @@
+import type { ModelDimensions } from "./modelDimensions";
+
 export type Platform =
   | "makerworld"
   | "thingiverse"
@@ -35,6 +37,10 @@ export interface ModelResult {
   via?: string;
   /** Price label for marketplaces, e.g. "Free" or "$79". */
   price?: string;
+  /** Provider-reported license and file extensions available with search results. */
+  license?: string;
+  formats?: string[];
+  dimensions?: ModelDimensions;
   isAI: boolean;
   score: number;
   /** Client-side only: the same model found on other sites (merged duplicates). */
@@ -83,8 +89,11 @@ export interface ModelDetails {
   images: string[];
   /** e.g. "CC BY-NC 4.0", "Standard Digital File License". */
   license?: string;
+  /** Link to the terms reported by the model's source, when available. */
+  licenseUrl?: string;
   /** Upper-case file extensions mentioned by the page, e.g. ["STL", "3MF"]. */
   formats: string[];
+  dimensions?: ModelDimensions;
   /** Set when the page couldn't be read (bot check etc.). */
   error?: string;
 }
@@ -104,9 +113,6 @@ export interface SavedModel extends ModelResult {
   savedAt: number;
   note?: string;
   collections?: string[];
-  /** Picked up from the quick preview. */
-  license?: string;
-  formats?: string[];
   /** Result of the last "check links" run. */
   linkStatus?: "ok" | "dead" | "unknown";
   checkedAt?: number;

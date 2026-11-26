@@ -22,6 +22,31 @@ export async function GET(request: NextRequest) {
     ?.split(",")
     .filter((p): p is Platform => p in PLATFORMS);
 
+  const run = async (send: (event: SearchStreamEvent) => void) => {
+    try {
+      await searchStream(query, page, sources, (outcome) => send({ type: "source", ...outcome }));
+      send({ type: "done", page });
+    } catch (error) {
+      console.error("Search failed:", error);
+      send({ type: "error", error: `Search failed: ${error}` });
+    }
+  };
+
+  // Use the same provider outcomes without a long-lived NDJSON connection
+  // for WebViews that stall when reading the streamed response.
+  if (request.nextUrl.searchParams.get("buffered") === "1") {
+    const events: SearchStreamEvent[] = [];
+    await run((event) => events.push(event));
+    const body = JSON.stringify(events);
+    return new Response(body, {
+      headers: {
+        "Content-Type": "application/json; charset=utf-8",
+        "Content-Length": String(Buffer.byteLength(body)),
+        "Cache-Control": "no-store, no-transform",
+      },
+    });
+  }
+
   const encoder = new TextEncoder();
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
@@ -35,11 +60,7 @@ export async function GET(request: NextRequest) {
         }
       };
       try {
-        await searchStream(query, page, sources, (outcome) => send({ type: "source", ...outcome }));
-        send({ type: "done", page });
-      } catch (error) {
-        console.error("Search failed:", error);
-        send({ type: "error", error: `Search failed: ${error}` });
+        await run(send);
       } finally {
         if (open) controller.close();
       }

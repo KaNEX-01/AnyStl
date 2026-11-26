@@ -4,18 +4,24 @@ import os from "node:os";
 import path from "node:path";
 import { crc32, deflateRawSync } from "node:zlib";
 import { getSharedContext } from "./browser";
-import { fetchJson, httpRequest } from "./scrapers/common";
+import { fetchJson, httpRequest, USER_AGENT } from "./scrapers/common";
 import { Platform } from "./types";
 
 // "Open in OrcaSlicer": the model's print files are handed to OrcaSlicer
 // through its orcaslicer://open?file=<url> link, and OrcaSlicer downloads
 // them itself. Only sites that let anyone download without an account work.
-// A single file is passed as the site's own link; several are zipped here
+// A single file is passed as the site's own link (or cached locally when the
+// upstream host requires custom request headers); several are zipped here
 // and served from AnyStl, since the link takes one file (OrcaSlicer unzips).
 
 interface RemoteFile {
   name: string;
   url: string;
+  headers?: Record<string, string>;
+  /** Cache and serve from AnyStl even for a single file (e.g. hosts requiring a custom User-Agent or signed redirects). */
+  proxy?: boolean;
+  /** True when the remote URL is already a pre-packaged model ZIP archive (e.g. MyMiniFactory). */
+  archive?: boolean;
 }
 
 const CACHE_DIR = path.join(
@@ -23,17 +29,21 @@ const CACHE_DIR = path.join(
   "anystl",
   "slicer",
 );
-/** Prepared zips are only needed until OrcaSlicer has fetched them. */
+/** Prepared files are only needed until OrcaSlicer has fetched them. */
 const KEEP_MS = 60 * 60 * 1000;
 const MAX_FILES = 40;
 const MAX_TOTAL_BYTES = 500 * 1024 * 1024;
+const WIKIMEDIA_API = "https://commons.wikimedia.org/w/api.php";
+const WIKIMEDIA_USER_AGENT = "AnyStl/0.1 (https://github.com/KaNEX-01/AnyStl)";
 
 /** File types OrcaSlicer opens as models. */
 const MODEL_EXT = /\.(3mf|stl|obj|step|stp|amf)$/i;
+const ARCHIVE_EXT = /\.zip$/i;
 
 /**
  * The files worth opening: 3MF projects when there are any (their STLs are
- * usually the same parts), otherwise the plain meshes, otherwise STEP.
+ * usually the same parts), otherwise the plain meshes, otherwise STEP,
+ * otherwise a pre-packaged model ZIP archive.
  */
 export function pickFiles(files: RemoteFile[]): RemoteFile[] {
   const models = files.filter((f) => MODEL_EXT.test(f.name));
@@ -41,6 +51,8 @@ export function pickFiles(files: RemoteFile[]): RemoteFile[] {
     const match = models.filter((f) => ext.test(f.name));
     if (match.length) return match.slice(0, MAX_FILES);
   }
+  const archives = files.filter((f) => f.archive && ARCHIVE_EXT.test(f.name));
+  if (archives.length) return archives.slice(0, 1);
   return [];
 }
 
@@ -123,9 +135,99 @@ async function thingiverseFiles(url: string): Promise<RemoteFile[]> {
   return [...found].map(([fileUrl, name]) => ({ name, url: fileUrl }));
 }
 
+/**
+ * Wikimedia Commons hosts public STL files directly on upload.wikimedia.org,
+ * but requires a descriptive User-Agent header, so AnyStl caches and serves
+ * the single STL cleanly to OrcaSlicer.
+ */
+async function wikimediaFiles(url: string): Promise<RemoteFile[]> {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    throw new Error("Not a Wikimedia Commons file link");
+  }
+  if (parsed.hostname !== "commons.wikimedia.org") throw new Error("Not a Wikimedia Commons file link");
+  const match = parsed.pathname.match(/^\/wiki\/(File:.+\.stl)$/i);
+  if (!match) throw new Error("Not a Wikimedia Commons STL link");
+  const fileTitle = decodeURIComponent(match[1]!);
+
+  const api = new URL(WIKIMEDIA_API);
+  api.search = new URLSearchParams({
+    action: "query",
+    titles: fileTitle,
+    prop: "imageinfo",
+    iiprop: "url",
+    format: "json",
+    formatversion: "2",
+  }).toString();
+
+  const data = await fetchJson<{ query?: { pages?: Array<{ title?: string; missing?: boolean; imageinfo?: Array<{ url?: string }> }> } }>(
+    api.href,
+    { headers: { "User-Agent": WIKIMEDIA_USER_AGENT } },
+    "Wikimedia Commons",
+  );
+  const page = data.query?.pages?.[0];
+  const fileUrl = page?.imageinfo?.[0]?.url;
+  if (!page || page.missing || typeof fileUrl !== "string") {
+    throw new Error("Wikimedia Commons doesn't have this STL file any more");
+  }
+  const direct = new URL(fileUrl);
+  if (direct.protocol !== "https:" || direct.hostname !== "upload.wikimedia.org") {
+    throw new Error("Unexpected Wikimedia Commons file host");
+  }
+  const name = decodeURIComponent(direct.pathname.split("/").pop() || fileTitle.replace(/^File:/i, ""));
+  return [{ name, url: direct.href, headers: { "User-Agent": WIKIMEDIA_USER_AGENT }, proxy: true }];
+}
+
+/**
+ * Free MyMiniFactory objects redirect `/download/<id>` straight to a signed
+ * STL or ZIP archive on `*.myminifactory.com` without an account. Paid or
+ * login-gated models redirect back to the site or return 403/404.
+ */
+async function myminifactoryFiles(url: string): Promise<RemoteFile[]> {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    throw new Error("Not a MyMiniFactory model link");
+  }
+  if (parsed.hostname !== "www.myminifactory.com" && parsed.hostname !== "myminifactory.com") {
+    throw new Error("Not a MyMiniFactory model link");
+  }
+  const id = parsed.pathname.match(/\/object\/(?:[^/]+-)?(\d+)\/?$/)?.[1];
+  if (!id) throw new Error("Not a MyMiniFactory model link");
+
+  const res = await fetch(`https://www.myminifactory.com/download/${id}`, {
+    redirect: "manual",
+    headers: { "User-Agent": USER_AGENT },
+    signal: AbortSignal.timeout(20_000),
+  });
+  const location = res.headers.get("location");
+  if (!location || res.status < 300 || res.status >= 400) {
+    throw new Error("This MyMiniFactory model is paid or requires an account to download");
+  }
+  let target: URL;
+  try {
+    target = new URL(location, "https://www.myminifactory.com");
+  } catch {
+    throw new Error("Invalid MyMiniFactory download redirect");
+  }
+  if (target.protocol !== "https:" || !/(^|\.)myminifactory\.com$/i.test(target.hostname)) {
+    throw new Error("This MyMiniFactory model is paid or requires an account to download");
+  }
+  const name = decodeURIComponent(target.pathname.split("/").pop() || "");
+  if (!MODEL_EXT.test(name) && !ARCHIVE_EXT.test(name)) {
+    throw new Error("This MyMiniFactory model is paid or requires an account to download");
+  }
+  return [{ name, url: target.href, proxy: true, archive: ARCHIVE_EXT.test(name) }];
+}
+
 const SOURCES: Partial<Record<Platform, (url: string) => Promise<RemoteFile[]>>> = {
   printables: printablesFiles,
   thingiverse: thingiverseFiles,
+  myminifactory: myminifactoryFiles,
+  wikimedia: wikimediaFiles,
 };
 
 // Minimal ZIP writer (deflate, no zip64), enough for a handful of models.
@@ -179,7 +281,7 @@ function zip(entries: { name: string; data: Buffer }[]): Buffer {
 }
 
 async function download(file: RemoteFile): Promise<Buffer> {
-  const res = await httpRequest(file.url, { timeoutMs: 120_000 });
+  const res = await httpRequest(file.url, { timeoutMs: 120_000, headers: file.headers });
   if (res.status !== 200) throw new Error(`${file.name} couldn't be downloaded (${res.status})`);
   return res.body;
 }
@@ -220,7 +322,20 @@ export async function prepareForSlicer(url: string, platform: Platform, title: s
   if (!source) throw new Error("This site needs an account to download, so open it on the site");
   const files = pickFiles(await source(url));
   if (!files.length) throw new Error("No STL, 3MF, OBJ or STEP files on this model");
-  if (files.length === 1) return { url: files[0]!.url, count: 1 };
+  if (files.length === 1 && !files[0]!.proxy) return { url: files[0]!.url, count: 1 };
+
+  if (files.length === 1) {
+    const single = files[0]!;
+    const body = await download(single);
+    if (body.length > MAX_TOTAL_BYTES) throw new Error("This model's file is too big to send in one go");
+    await removeOld();
+    const token = randomBytes(12).toString("hex");
+    const ext = single.name.match(MODEL_EXT)?.[0]?.toLowerCase() || (single.archive ? ".zip" : ".stl");
+    const name = `${slug(title)}${ext}`;
+    await fs.mkdir(path.join(CACHE_DIR, token), { recursive: true });
+    await fs.writeFile(path.join(CACHE_DIR, token, name), body);
+    return { url: `/api/slicer/file/${token}/${encodeURIComponent(name)}`, count: 1 };
+  }
 
   const data: { name: string; data: Buffer }[] = [];
   let total = 0;
@@ -240,7 +355,7 @@ export async function prepareForSlicer(url: string, platform: Platform, title: s
   return { url: `/api/slicer/file/${token}/${encodeURIComponent(name)}`, count: files.length };
 }
 
-/** A prepared zip, or null when it's gone or the path isn't one of ours. */
+/** A prepared zip or model file, or null when it's gone or the path isn't one of ours. */
 export async function readPrepared(token: string, name: string): Promise<Buffer | null> {
   if (!/^[a-f0-9]{24}$/.test(token) || name.includes("/") || name.includes("\\") || name.startsWith(".")) return null;
   return fs.readFile(path.join(CACHE_DIR, token, name)).catch(() => null);

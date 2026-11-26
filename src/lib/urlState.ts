@@ -1,4 +1,4 @@
-import { DEFAULT_FILTERS, ResultFilters } from "./filters";
+import { DEFAULT_FILTERS, parseFormatFilter, parseLicenseFilter, ResultFilters } from "./filters";
 import { isSortOption } from "./sorting";
 import { SortOption } from "./types";
 
@@ -23,6 +23,8 @@ export function readUrlState(): UrlState {
       hideAI: p.get("noai") === "1",
       maxPrice: p.has("max") && Number.isFinite(max) && max >= 0 ? max : null,
       mergeDuplicates: p.get("merge") !== "0",
+      format: parseFormatFilter(p.get("format")),
+      license: parseLicenseFilter(p.get("license")),
     },
   };
 }
@@ -35,6 +37,8 @@ export function urlFor({ query, sort, filters }: UrlState): string {
   if (filters.hideAI) p.set("noai", "1");
   if (filters.maxPrice !== null) p.set("max", String(filters.maxPrice));
   if (filters.mergeDuplicates !== DEFAULT_FILTERS.mergeDuplicates) p.set("merge", "0");
+  if (filters.format) p.set("format", filters.format);
+  if (filters.license) p.set("license", filters.license);
   const qs = p.toString();
   return qs ? `/?${qs}` : "/";
 }

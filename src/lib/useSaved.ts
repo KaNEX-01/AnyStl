@@ -73,8 +73,9 @@ export async function importSaved(data: unknown): Promise<{ added: number; skipp
   return request<{ saved: SavedModel[]; added: number; skipped: number }>("/api/saved/import", json("POST", data));
 }
 
-export async function checkSavedLinks(): Promise<void> {
-  await request("/api/saved/check", { method: "POST" });
+export async function checkSavedLinks(): Promise<SavedModel[]> {
+  const { saved } = await request("/api/saved/check", { method: "POST" });
+  return saved;
 }
 
 /** The saved entry for `url`, if any (for the preview's note editor). */

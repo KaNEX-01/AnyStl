@@ -1,4 +1,5 @@
 import { ModelResult, Platform } from "../types";
+import { formatsFromNames } from "../modelFormats";
 import { fetchJson, finalize, pageOffset, RESULT_LIMIT } from "./common";
 
 const PLATFORM: Platform = "printables";
@@ -16,10 +17,17 @@ const MODEL_FIELDS = `
   image { filePath }
 `;
 
-const SEARCH_QUERY = `
+const SEARCH_METADATA = `
+  stls { name }
+  gcodes { name }
+  otherFiles { name }
+  license { name abbreviation }
+`;
+
+const searchQuery = (metadata: string) => `
   query SearchModels($query: String!, $limit: Int!, $offset: Int!) {
     searchPrints2(query: $query, limit: $limit, offset: $offset) {
-      items { ${MODEL_FIELDS} }
+      items { ${MODEL_FIELDS} ${metadata} }
     }
   }
 `;
@@ -40,12 +48,18 @@ interface PrintablesItem {
   likesCount: number | null;
   downloadCount: number | null;
   image: { filePath: string } | null;
+  stls?: Array<{ name: string } | null> | null;
+  gcodes?: Array<{ name: string } | null> | null;
+  otherFiles?: Array<{ name: string } | null> | null;
+  license?: { name: string; abbreviation: string | null } | null;
 }
 
 interface PrintablesResponse<T> {
   data?: T;
   errors?: Array<{ message: string }>;
 }
+
+class PrintablesQueryError extends Error {}
 
 async function graphql<T>(query: string, variables: object): Promise<T> {
   const data = await fetchJson<PrintablesResponse<T>>(
@@ -62,12 +76,15 @@ async function graphql<T>(query: string, variables: object): Promise<T> {
     "Printables API",
   );
   if (data.errors?.length || !data.data) {
-    throw new Error(`Printables API error: ${data.errors?.[0]?.message ?? "empty response"}`);
+    throw new PrintablesQueryError(`Printables API error: ${data.errors?.[0]?.message ?? "empty response"}`);
   }
   return data.data;
 }
 
 function toResult(item: PrintablesItem): ModelResult {
+  const files = [...(item.stls || []), ...(item.gcodes || []), ...(item.otherFiles || [])];
+  const formats = formatsFromNames(files.flatMap((file) => typeof file?.name === "string" ? [file.name] : []));
+  const license = item.license?.abbreviation?.trim() || item.license?.name?.trim();
   return finalize({
     title: item.name,
     url: `https://www.printables.com/model/${item.id}-${item.slug}`,
@@ -75,14 +92,18 @@ function toResult(item: PrintablesItem): ModelResult {
     likes: item.likesCount || 0,
     downloads: item.downloadCount ?? null,
     platform: PLATFORM,
+    ...(formats.length ? { formats } : {}),
+    ...(license ? { license } : {}),
   });
 }
 
 export async function searchPrintables(query: string, pageNo = 1): Promise<ModelResult[]> {
-  const data = await graphql<{ searchPrints2: { items: PrintablesItem[] } | null }>(SEARCH_QUERY, {
-    query,
-    limit: RESULT_LIMIT,
-    offset: pageOffset(pageNo),
+  type SearchData = { searchPrints2: { items: PrintablesItem[] } | null };
+  const variables = { query, limit: RESULT_LIMIT, offset: pageOffset(pageNo) };
+  const data = await graphql<SearchData>(searchQuery(SEARCH_METADATA), variables).catch((error) => {
+    if (!(error instanceof PrintablesQueryError)) throw error;
+    // Search still works if Printables removes a metadata field from the listing API.
+    return graphql<SearchData>(searchQuery(""), variables);
   });
   return (data.searchPrints2?.items || []).map(toResult);
 }

@@ -1,10 +1,98 @@
 import { Page } from "playwright";
 import { ModelResult, Platform } from "../types";
+import { formatsFromNames } from "../modelFormats";
 import { gotoPastChallenge } from "../browser";
 import { finalize, pageOffset, RESULT_LIMIT } from "./common";
 
 const PLATFORM: Platform = "thangs";
 const CARD_LINK = 'a[aria-label][href*="/3d-model/"]';
+const SEARCH_API = "https://thangs.com/api/models/v3/search-by-text";
+const DIRECT_HEADERS = {
+  Accept: "application/json, text/plain, */*",
+  "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36",
+};
+
+interface ThangsApiHit {
+  modelId?: string | number;
+  name?: string;
+  modelTitle?: string;
+  modelPageUrl?: string;
+  thumbnailUrl?: string;
+  thumbnails?: string[];
+  nLikes?: number | null;
+  likesCount?: number | null;
+  nDownloads?: number | null;
+  downloadCount?: number | null;
+  fileTypes?: string[];
+  license?: string | null;
+  plans?: unknown[];
+  marketplaceInfo?: { price?: number | null } | null;
+}
+
+interface ThangsApiResponse {
+  results?: ThangsApiHit[];
+}
+
+export function mapThangsApiResults(data: ThangsApiResponse): ModelResult[] {
+  const hits = Array.isArray(data?.results) ? data.results : [];
+  const out: ModelResult[] = [];
+  for (const hit of hits) {
+    const title = (hit.modelTitle || hit.name || "").trim();
+    const url = hit.modelPageUrl || (hit.modelId ? `https://thangs.com/m/${hit.modelId}` : "");
+    if (!title || !url) continue;
+
+    const formats = formatsFromNames((hit.fileTypes || []).map((f) => `model.${f.replace(/^\./, "")}`));
+    const rawPrice = hit.marketplaceInfo?.price;
+    const members = Array.isArray(hit.plans) && hit.plans.length > 0;
+    const price =
+      typeof rawPrice === "number" && Number.isFinite(rawPrice) && rawPrice > 0
+        ? `$${rawPrice}`
+        : members
+          ? "Members"
+          : undefined;
+    const license = typeof hit.license === "string" && hit.license.trim() ? hit.license.trim() : undefined;
+
+    out.push(
+      finalize({
+        title,
+        url,
+        thumbnail: hit.thumbnailUrl || hit.thumbnails?.[0] || "",
+        likes: hit.nLikes ?? hit.likesCount ?? 0,
+        downloads: hit.nDownloads ?? hit.downloadCount ?? null,
+        platform: PLATFORM,
+        ...(price ? { price } : {}),
+        ...(formats.length ? { formats } : {}),
+        ...(license ? { license } : {}),
+      }),
+    );
+  }
+  return out;
+}
+
+/**
+ * Direct HTTP JSON call to Thangs v3 text search (~700 ms, no Playwright).
+ * Returns null on HTTP/network failure so the caller falls back to Playwright.
+ */
+export async function searchThangsApi(query: string, pageNo = 1): Promise<ModelResult[] | null> {
+  const params = new URLSearchParams({
+    searchTerm: query,
+    pageSize: String(RESULT_LIMIT),
+    page: String(Math.max(0, pageNo - 1)),
+    scope: "all",
+  });
+  try {
+    const res = await fetch(`${SEARCH_API}?${params}`, {
+      headers: DIRECT_HEADERS,
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (!res.ok) return null;
+    const data = (await res.json()) as ThangsApiResponse;
+    if (!Array.isArray(data?.results)) return null;
+    return mapThangsApiResults(data);
+  } catch {
+    return null;
+  }
+}
 
 /** Number of distinct models currently rendered. */
 function countModels(page: Page): Promise<number> {

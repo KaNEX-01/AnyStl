@@ -15,6 +15,8 @@ test("Poly Haven sends an identifiable user agent and searches its model catalog
   assert.equal(chair.thumbnail, thumbnail);
   assert.equal(chair.url, "https://polyhaven.com/a/chair");
   assert.equal(chair.price, "Free");
+  assert.deepEqual(chair.formats, ["BLEND", "GLTF", "FBX", "USD"]);
+  assert.equal(chair.license, "CC0 1.0");
   assert.deepEqual((await searchPolyHaven("furniture")).map((item) => item.title), ["Rug", "Chair"]);
   assert.equal(fetch.mock.callCount(), 1);
   const [url, request] = fetch.mock.calls[0].arguments;

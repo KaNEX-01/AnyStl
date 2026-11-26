@@ -11,6 +11,8 @@ function toResult(raw: unknown): { index: number; result: ModelResult } | null {
   const page = apiObject(raw);
   if (page?.ns !== 6 || typeof page.title !== "string" || !/^File:.+\.stl$/i.test(page.title)) return null;
   const image = apiObject(Array.isArray(page.imageinfo) ? page.imageinfo[0] : undefined);
+  const shortName = apiObject(apiObject(image?.extmetadata)?.LicenseShortName)?.value;
+  const license = typeof shortName === "string" && !/[<>]/.test(shortName) ? shortName.trim().slice(0, 60) : "";
   const url = providerUrl(image?.descriptionurl, ["commons.wikimedia.org"]);
   if (!url || !/^\/wiki\/File:.+\.stl$/i.test(url.pathname)) return null;
   url.search = "";
@@ -21,6 +23,8 @@ function toResult(raw: unknown): { index: number; result: ModelResult } | null {
       title: page.title.slice(5, -4).replace(/_/g, " ").trim(), url: url.href,
       thumbnail: providerImage(image?.thumburl, IMAGE_HOSTS),
       likes: 0, downloads: null, platform: "wikimedia", price: "Free",
+      formats: ["STL"],
+      ...(license ? { license } : {}),
     }),
   };
 }
@@ -30,7 +34,8 @@ export async function searchWikimedia(query: string, pageNo = 1): Promise<ModelR
   url.search = new URLSearchParams({
     action: "query", generator: "search", gsrnamespace: "6", gsrsearch: commonsStlQuery(query),
     gsrlimit: String(RESULT_LIMIT), gsroffset: String(pageOffset(pageNo)),
-    prop: "imageinfo", iiprop: "url", iiurlwidth: "400", format: "json", formatversion: "2",
+    prop: "imageinfo", iiprop: "url|extmetadata", iiextmetadatafilter: "LicenseShortName",
+    iiurlwidth: "400", format: "json", formatversion: "2",
   }).toString();
   const payload = apiObject(await fetchApiJson(url, { headers: { "User-Agent": USER_AGENT } }));
   if (!payload || payload.error || payload.errors) throw new Error("API returned a search error");

@@ -7,9 +7,9 @@ const { searchAll, searchStream } = loadScraper();
 const sources = ["wikimedia"];
 const cover = "https://thumb.wikimedia.org/wikipedia/commons/thumb/a/ab/Vase.stl/500px-Vase.stl.png";
 
-const page = (name, index, thumburl, host = "commons.wikimedia.org") => ({
+const page = (name, index, thumburl, host = "commons.wikimedia.org", license = "CC BY-SA 4.0") => ({
   ns: 6, index, title: `File:${name}`,
-  imageinfo: [{ descriptionurl: `https://${host}/wiki/File:${name.replaceAll(" ", "_")}`, thumburl }],
+  imageinfo: [{ descriptionurl: `https://${host}/wiki/File:${name.replaceAll(" ", "_")}`, thumburl, extmetadata: { LicenseShortName: { value: license } } }],
 });
 
 test("Commons searches files without credentials, pages by offset, and uses the ranked STL file pages", async (t) => {
@@ -18,7 +18,7 @@ test("Commons searches files without credentials, pages by offset, and uses the 
     batchcomplete: true,
     continue: { gsroffset: 60 },
     query: { pages: [
-      page("Second Vase.STL", 32, "https://example.test/ignored.png"),
+      page("Second Vase.STL", 32, "https://example.test/ignored.png", undefined, "<a>Not a license</a>"),
       page("Not A Model.png", 33, cover),
       page("First Vase.stl", 31, cover),
       page("Wrong Host.stl", 34, cover, "example.test"),
@@ -32,12 +32,16 @@ test("Commons searches files without credentials, pages by offset, and uses the 
   assert.equal(url.origin + url.pathname, "https://commons.wikimedia.org/w/api.php");
   assert.deepEqual(Object.fromEntries(url.searchParams), {
     action: "query", generator: "search", gsrnamespace: "6", gsrsearch: "vase & çiçek filetype:3d",
-    gsrlimit: "30", gsroffset: "30", prop: "imageinfo", iiprop: "url", iiurlwidth: "400", format: "json", formatversion: "2",
+    gsrlimit: "30", gsroffset: "30", prop: "imageinfo", iiprop: "url|extmetadata", iiextmetadatafilter: "LicenseShortName",
+    iiurlwidth: "400", format: "json", formatversion: "2",
   });
   assert.match(init.headers["User-Agent"], /^AnyStl\//);
   assert.equal(init.headers.Authorization, undefined);
   assert.equal(events.length, 1);
   assert.equal(events[0].status, "ok");
+  assert.deepEqual(events[0].results.map(({ formats, license }) => [formats, license]), [
+    [["STL"], "CC BY-SA 4.0"], [["STL"], undefined],
+  ]);
   assert.deepEqual(events[0].results.map(({ title, url, thumbnail, price, platform }) => ({ title, url, thumbnail, price, platform })), [
     { title: "First Vase", url: "https://commons.wikimedia.org/wiki/File:First_Vase.stl", thumbnail: cover, price: "Free", platform: "wikimedia" },
     { title: "Second Vase", url: "https://commons.wikimedia.org/wiki/File:Second_Vase.STL", thumbnail: "", price: "Free", platform: "wikimedia" },

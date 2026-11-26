@@ -2,6 +2,8 @@ import type { Metadata } from "next";
 import { JetBrains_Mono, Space_Grotesk } from "next/font/google";
 import { connection } from "next/server";
 import HeartbeatKeepalive from "@/components/HeartbeatKeepalive";
+import { ComparisonTray } from "@/components/ComparisonTray";
+import { OrcaWebViewStyle } from "@/components/OrcaWebViewStyle";
 import { Sidebar } from "@/components/Sidebar";
 import { PreviewModal } from "@/components/PreviewModal";
 import { SearchPlatformsProvider } from "@/components/SearchPlatformsProvider";
@@ -40,11 +42,15 @@ export default async function RootLayout({
       suppressHydrationWarning
     >
       <body className="min-h-full bg-spool-bg text-spool-text" suppressHydrationWarning>
+        <OrcaWebViewStyle />
         <HeartbeatKeepalive />
         <SearchPlatformsProvider platforms={availableSearchPlatforms()}>
           <div className="min-h-screen lg:flex">
             <Sidebar />
-            <div className="flex min-w-0 flex-1 flex-col">{children}</div>
+            <div className="flex min-w-0 flex-1 flex-col">
+              {children}
+              <ComparisonTray />
+            </div>
           </div>
         </SearchPlatformsProvider>
         <PreviewModal />

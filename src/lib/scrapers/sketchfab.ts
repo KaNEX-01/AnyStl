@@ -12,6 +12,9 @@ interface SketchfabModel {
   viewerUrl: string;
   likeCount: number | null;
   thumbnails: { images: Array<{ url: string; width: number }> } | null;
+  isDownloadable?: boolean;
+  archives?: { glb?: { type?: string }; gltf?: { type?: string }; usdz?: { type?: string } } | null;
+  license?: { label?: string } | null;
 }
 
 interface SketchfabResponse {
@@ -25,6 +28,10 @@ function pickThumbnail(model: SketchfabModel): string {
 }
 
 function toResult(model: SketchfabModel): ModelResult {
+  const formats = model.isDownloadable === true
+    ? (["glb", "gltf", "usdz"] as const).filter((format) => model.archives?.[format]?.type === format).map((format) => format.toUpperCase())
+    : [];
+  const license = model.license?.label?.trim();
   return finalize({
     title: model.name,
     url: model.viewerUrl || `https://sketchfab.com/3d-models/${model.uid}`,
@@ -33,6 +40,8 @@ function toResult(model: SketchfabModel): ModelResult {
     // Sketchfab doesn't expose download counts publicly.
     downloads: null,
     platform: PLATFORM,
+    ...(formats.length ? { formats } : {}),
+    ...(license ? { license } : {}),
   });
 }
 

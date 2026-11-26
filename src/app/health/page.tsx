@@ -53,12 +53,32 @@ function lastResult(check: SiteCheck): string {
   return `${what}: ${check.count} results`;
 }
 
-function SiteRow({ platform, site, checking, now }: { platform: Platform; site?: SiteHealth; checking: boolean; now: number }) {
+const rowButton =
+  "inline-flex h-7 items-center gap-1.5 rounded-lg border border-spool-line bg-spool-field px-2.5 text-xs text-spool-text transition-colors hover:border-spool-accent disabled:opacity-50";
+
+function SiteRow({
+  platform,
+  site,
+  checking,
+  disabled,
+  now,
+  onTest,
+  onReset,
+}: {
+  platform: Platform;
+  site?: SiteHealth;
+  checking: boolean;
+  disabled: boolean;
+  now: number;
+  onTest: (platform: Platform) => void;
+  onReset: (platform: Platform) => void;
+}) {
   const v = VERDICT[verdict(site, now)];
   const recent = site?.recent || [];
   const answered = recent.filter((c) => c.status !== "failed");
   const typical = median(answered.map((c) => c.ms));
   const last = recent[0];
+  const isBlocked = Boolean(site?.blockedUntil && site.blockedUntil > now);
 
   return (
     <tr className="border-t border-spool-line-soft align-top">
@@ -78,8 +98,8 @@ function SiteRow({ platform, site, checking, now }: { platform: Platform; site?:
         {recent.length ? `${answered.length}/${recent.length}` : "—"}
       </td>
       <td className="py-3 pr-4 text-right font-mono text-xs text-spool-muted">{typical === null ? "—" : seconds(typical)}</td>
-      <td className="py-3 text-sm text-spool-muted">
-        {site?.blockedUntil && site.blockedUntil > now && (
+      <td className="py-3 pr-4 text-sm text-spool-muted">
+        {isBlocked && site?.blockedUntil && (
           <p className="text-[#FCA5A5]">
             Kept blocking automated searches; skipped until {new Date(site.blockedUntil).toLocaleTimeString("en-US")}.
           </p>
@@ -95,6 +115,24 @@ function SiteRow({ platform, site, checking, now }: { platform: Platform; site?:
           </p>
         ))}
       </td>
+      <td className="py-3 text-right whitespace-nowrap">
+        <div className="inline-flex items-center gap-1.5">
+          {isBlocked && (
+            <button type="button" onClick={() => onReset(platform)} disabled={disabled} className={rowButton}>
+              Reset
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => onTest(platform)}
+            disabled={disabled || checking}
+            aria-label={`Test ${PLATFORMS[platform].name}`}
+            className={rowButton}
+          >
+            Test
+          </button>
+        </div>
+      </td>
     </tr>
   );
 }
@@ -103,6 +141,8 @@ export default function HealthPage() {
   const platforms = useSearchPlatforms();
   const [sites, setSites] = useState<Partial<Record<Platform, SiteHealth>>>({});
   const [checking, setChecking] = useState<Set<Platform>>(new Set());
+  const [running, setRunning] = useState(false);
+  const [checkError, setCheckError] = useState(false);
   const [now, setNow] = useState(() => Date.now());
 
   const refresh = useCallback(
@@ -124,8 +164,15 @@ export default function HealthPage() {
     return () => clearInterval(timer);
   }, [refresh]);
 
-  const runCheck = async () => {
-    setChecking(new Set(platforms));
+  const runCheck = async (target?: Platform) => {
+    const targets = target ? [target] : platforms;
+    if (!target) setRunning(true);
+    setCheckError(false);
+    setChecking((prev) => {
+      const next = new Set(prev);
+      for (const p of targets) next.add(p);
+      return next;
+    });
     const done = (p: Platform) =>
       setChecking((s) => {
         const next = new Set(s);
@@ -133,9 +180,12 @@ export default function HealthPage() {
         return next;
       });
     try {
-      const res = await fetch("/api/health/check", { method: "POST" });
-      const reader = res.body!.pipeThrough(new TextDecoderStream()).getReader();
+      const endpoint = target ? `/api/health/check?platform=${encodeURIComponent(target)}` : "/api/health/check";
+      const res = await fetch(endpoint, { method: "POST" });
+      if (!res.ok || !res.body) throw new Error("Health check request failed");
+      const reader = res.body.pipeThrough(new TextDecoderStream()).getReader();
       let buffer = "";
+      let completed = false;
       for (;;) {
         const { value, done: finished } = await reader.read();
         if (finished) break;
@@ -144,23 +194,54 @@ export default function HealthPage() {
         buffer = lines.pop()!;
         for (const line of lines.filter(Boolean)) {
           const event = JSON.parse(line) as HealthCheckEvent;
-          if (event.type === "done") continue;
+          if (event.type === "done") {
+            completed = true;
+            continue;
+          }
           if (event.type === "site") {
             setNow(Date.now());
             setSites((s) => {
               const prev = s[event.platform];
               return {
                 ...s,
-                [event.platform]: { platform: event.platform, blockedUntil: prev?.blockedUntil, recent: [event.check, ...(prev?.recent || [])] },
+                [event.platform]: {
+                  platform: event.platform,
+                  blockedUntil: target ? undefined : prev?.blockedUntil,
+                  recent: [event.check, ...(prev?.recent || [])],
+                },
               };
             });
           }
           done(event.platform);
         }
       }
+      if (!completed) throw new Error("Health check stream ended early");
+    } catch {
+      setCheckError(true);
     } finally {
-      setChecking(new Set());
+      setChecking((prev) => {
+        const next = new Set(prev);
+        for (const p of targets) next.delete(p);
+        return next;
+      });
+      if (!target) setRunning(false);
       refresh();
+    }
+  };
+
+  const resetCooldown = async (platform: Platform) => {
+    try {
+      const res = await fetch("/api/health/reset", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ platform }),
+      });
+      if (!res.ok) return;
+      const data = (await res.json()) as { sites: SiteHealth[] };
+      setSites(Object.fromEntries(data.sites.map((s) => [s.platform, s])));
+      setNow(Date.now());
+    } catch {
+      // Ignore transient network errors; next poll refreshes state.
     }
   };
 
@@ -178,11 +259,17 @@ export default function HealthPage() {
             scraper needs fixing.
           </p>
         </div>
-        <button onClick={runCheck} disabled={checking.size > 0} className={toolButton}>
-          {checking.size > 0 && <LogoLoader size={16} />}
-          {checking.size > 0 ? `Checking ${checking.size} sites…` : "Run check"}
+        <button onClick={() => runCheck()} disabled={running} className={toolButton}>
+          {running && <LogoLoader size={16} />}
+          {running && checking.size > 0 ? `Checking ${checking.size} sites…` : running ? "Finishing check…" : "Run check"}
         </button>
       </header>
+
+      {checkError && (
+        <p role="alert" className="mb-4 text-sm text-[#FCA5A5]">
+          Could not complete the site check. Check the connection to AnyStl and try again.
+        </p>
+      )}
 
       {all.length > 0 && (
         <p className="mb-4 text-sm text-spool-muted">
@@ -198,18 +285,28 @@ export default function HealthPage() {
               <th className="pb-2 pr-4 font-normal">Status</th>
               <th className="pb-2 pr-4 text-right font-normal" title="Answers / attempts, last 20">Answered</th>
               <th className="pb-2 pr-4 text-right font-normal" title="Median response time">Typical</th>
-              <th className="pb-2 font-normal">Latest</th>
+              <th className="pb-2 pr-4 font-normal">Latest</th>
+              <th className="pb-2 text-right font-normal">Actions</th>
             </tr>
           </thead>
           {GROUPS.map((g) => (
             <tbody key={g.id}>
               <tr>
-                <td colSpan={5} className="pb-1 pt-5 font-mono text-[11px] uppercase tracking-wide text-spool-accent-soft">
+                <td colSpan={6} className="pb-1 pt-5 font-mono text-[11px] uppercase tracking-wide text-spool-accent-soft">
                   {g.name}
                 </td>
               </tr>
               {platforms.filter((p) => PLATFORMS[p].group === g.id).map((p) => (
-                <SiteRow key={p} platform={p} site={sites[p]} checking={checking.has(p)} now={now} />
+                <SiteRow
+                  key={p}
+                  platform={p}
+                  site={sites[p]}
+                  checking={checking.has(p)}
+                  disabled={running}
+                  now={now}
+                  onTest={(platform) => runCheck(platform)}
+                  onReset={resetCooldown}
+                />
               ))}
             </tbody>
           ))}

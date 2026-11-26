@@ -1,7 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { ResultFilters } from "@/lib/filters";
+import { DEFAULT_FILTERS, parseFormatFilter, parseLicenseFilter, ResultFilters } from "@/lib/filters";
+import { MODEL_FORMATS } from "@/lib/modelFormats";
 
 interface Props {
   value: ResultFilters;
@@ -26,7 +27,7 @@ function Toggle({ on, onClick, children, title }: { on: boolean; onClick: () => 
   );
 }
 
-/** Result filters: free only, no AI, price cap, merging the same model across sites. */
+/** Filters applied to the results already returned by the sources. */
 export function FilterBar({ value, onChange, excludes }: Props) {
   const set = (patch: Partial<ResultFilters>) => onChange({ ...value, ...patch });
   // The price box keeps its own text so typing "1." isn't rewritten mid-way.
@@ -36,6 +37,14 @@ export function FilterBar({ value, onChange, excludes }: Props) {
     setLastMax(value.maxPrice);
     setPriceText(value.maxPrice === null ? "" : String(value.maxPrice));
   }
+
+  const activeCount =
+    (value.freeOnly !== DEFAULT_FILTERS.freeOnly ? 1 : 0) +
+    (value.hideAI !== DEFAULT_FILTERS.hideAI ? 1 : 0) +
+    (value.mergeDuplicates !== DEFAULT_FILTERS.mergeDuplicates ? 1 : 0) +
+    (value.maxPrice !== DEFAULT_FILTERS.maxPrice ? 1 : 0) +
+    (value.format !== DEFAULT_FILTERS.format ? 1 : 0) +
+    (value.license !== DEFAULT_FILTERS.license ? 1 : 0);
 
   return (
     <div className="flex flex-wrap items-center gap-2">
@@ -53,7 +62,7 @@ export function FilterBar({ value, onChange, excludes }: Props) {
         Merge duplicates
       </Toggle>
       <label
-        className={`inline-flex items-center gap-1.5 rounded-full py-1 pl-3 pr-1 text-xs font-medium ${
+        className={`inline-flex items-center gap-1.5 rounded-full py-1 pl-3 pr-1 text-xs font-medium transition-colors ${
           value.maxPrice !== null ? "bg-spool-accent text-spool-side" : "bg-spool-chip text-spool-muted"
         }`}
       >
@@ -73,6 +82,50 @@ export function FilterBar({ value, onChange, excludes }: Props) {
           className="w-14 rounded-full bg-spool-bg/60 px-2 py-0.5 text-spool-text placeholder:text-spool-dim focus:outline-none"
         />
       </label>
+      <label
+        className={`inline-flex items-center gap-1.5 rounded-full py-1 pl-3 pr-1 text-xs font-medium transition-colors ${
+          value.format !== null ? "bg-spool-accent text-spool-side" : "bg-spool-chip text-spool-muted"
+        }`}
+        title="Matches formats reported by the source. Results without a listed format are unknown."
+      >
+        Format
+        <select
+          value={value.format ?? ""}
+          onChange={(e) => set({ format: parseFormatFilter(e.target.value) })}
+          className="rounded-full bg-spool-bg px-2 py-0.5 text-spool-text focus:outline-none"
+        >
+          <option value="">Any</option>
+          {MODEL_FORMATS.map((format) => <option key={format}>{format}</option>)}
+          <option value="unknown">Unknown</option>
+        </select>
+      </label>
+      <label
+        className={`inline-flex items-center gap-1.5 rounded-full py-1 pl-3 pr-1 text-xs font-medium transition-colors ${
+          value.license !== null ? "bg-spool-accent text-spool-side" : "bg-spool-chip text-spool-muted"
+        }`}
+        title="Commercial reuse matches CC0, CC BY and CC BY-SA. Check the original license and its conditions."
+      >
+        License
+        <select
+          value={value.license ?? ""}
+          onChange={(e) => set({ license: parseLicenseFilter(e.target.value) })}
+          className="rounded-full bg-spool-bg px-2 py-0.5 text-spool-text focus:outline-none"
+        >
+          <option value="">Any</option>
+          <option value="commercial">Commercial reuse (CC)</option>
+          <option value="noncommercial">Noncommercial (CC)</option>
+          <option value="unknown">Not stated</option>
+        </select>
+      </label>
+      {activeCount > 0 && (
+        <button
+          type="button"
+          onClick={() => onChange(DEFAULT_FILTERS)}
+          className="rounded-full px-2.5 py-1 text-xs font-medium text-spool-accent-soft transition-colors hover:bg-spool-chip hover:text-spool-text"
+        >
+          Clear ({activeCount})
+        </button>
+      )}
       {excludes.length > 0 && (
         <span className="font-mono text-[11px] text-spool-dim">
           without {excludes.map((w) => `“${w}”`).join(", ")}

@@ -5,10 +5,10 @@ cd -- "$(dirname -- "$0")/.."
 
 usage() {
   cat <<'EOF'
-Usage: bash scripts/test-apis.sh [--live] [site ...]
+Usage: bash scripts/test-apis.sh [--live] [suite ...]
        bash scripts/test-apis.sh --list
 
-  Default: run offline test suites for all sites, or only the named sites.
+Default: run all offline suites, or only the named suites.
   --live:  call the configured search APIs directly (no scraping fallback).
   --list:  list the available offline and live tests.
 EOF
@@ -76,7 +76,8 @@ export NODE_PATH="$PWD/node_modules"
 export ANYSTL_TEST_BUILD="$scratch/compiled"
 
 ./node_modules/.bin/tsc --target ES2017 --module commonjs --strict --esModuleInterop --skipLibCheck \
-  --rootDir src/lib --outDir "$ANYSTL_TEST_BUILD" src/lib/scrapers/index.ts src/lib/filters.ts
+  --rootDir src/lib --outDir "$ANYSTL_TEST_BUILD" src/lib/scrapers/index.ts src/lib/urlState.ts src/lib/savedValidation.ts \
+  src/lib/useComparison.ts src/lib/modelAlternatives.ts src/lib/details.ts src/lib/slicer.ts src/lib/slicerOpen.ts src/lib/sendToOrca.ts
 
 if [[ "$mode" == live ]]; then
   node "$test_dir/run-live.mjs" "${files[@]}"

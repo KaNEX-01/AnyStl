@@ -1,6 +1,9 @@
 import { getHeadfulContext, getSharedContext, waitPastChallenge } from "./browser";
 import { decodeEntities, fetchJson, fetchText, PROXIED_IMAGE_HOSTS, proxied } from "./scrapers/common";
 import { ModelDetails, Platform } from "./types";
+import { formatsFromNames } from "./modelFormats";
+import { modelDimensionsFromLd } from "./modelDimensions";
+import { licenseFromModelMetadata, licenseLink } from "./modelLicense";
 
 // Model pages are read on demand for the quick preview: license, author,
 // file types and bigger images. A few sites have a JSON API for this; the
@@ -22,22 +25,6 @@ const SITE_FORMATS: Partial<Record<Platform, string[]>> = {
   tinkercad: ["STL", "OBJ"],
   warehouse3d: ["SKP"],
 };
-
-const CC_NAMES: Record<string, string> = {
-  by: "CC BY", "by-sa": "CC BY-SA", "by-nd": "CC BY-ND", "by-nc": "CC BY-NC",
-  "by-nc-sa": "CC BY-NC-SA", "by-nc-nd": "CC BY-NC-ND",
-};
-
-/** "https://creativecommons.org/licenses/by-nc/4.0/" → "CC BY-NC 4.0". */
-export function licenseName(value: string): string {
-  const cc = value.match(/creativecommons\.org\/licenses\/([a-z-]+)\/([\d.]+)/i);
-  if (cc && CC_NAMES[cc[1]!.toLowerCase()]) return `${CC_NAMES[cc[1]!.toLowerCase()]} ${cc[2]}`;
-  if (/creativecommons\.org\/publicdomain\/zero/i.test(value)) return "CC0";
-  if (/gnu\.org\/licenses\/gpl/i.test(value)) return "GPL";
-  // Any other link is the site's own terms page.
-  if (/^https?:\/\//.test(value)) return "Site license";
-  return value.slice(0, 60);
-}
 
 function formatsIn(text: string): string[] {
   const found = new Set<string>();
@@ -86,7 +73,7 @@ function fromHtml(url: string, html: string, platform: Platform): ModelDetails {
       return [];
     }
   });
-  const license = nameOf(findKey(ld, "license"));
+  const license = licenseFromModelMetadata(ld);
   const ldImages = findKey(ld, "image");
   const images = [
     meta(html, "og:image"),
@@ -99,8 +86,9 @@ function fromHtml(url: string, html: string, platform: Platform): ModelDetails {
     author: nameOf(findKey(ld, "author")) || nameOf(findKey(ld, "creator")) || meta(html, "author"),
     description: description?.slice(0, 600),
     images: [...new Set(images)].slice(0, 6),
-    license: license ? licenseName(license) : undefined,
+    ...license,
     formats: SITE_FORMATS[platform] || formatsIn(html),
+    dimensions: modelDimensionsFromLd(ld),
   };
 }
 
@@ -167,14 +155,14 @@ async function printablesDetails(url: string): Promise<ModelDetails | null> {
   );
   const p = data.data?.print;
   if (!p) return null;
-  const files = [...(p.stls || []), ...(p.gcodes || []), ...(p.otherFiles || [])].map((f) => ` ${f.name}`).join(" ");
+  const files = [...(p.stls || []), ...(p.gcodes || []), ...(p.otherFiles || [])].map((f) => f.name);
   return {
     url,
     author: p.user?.publicUsername,
     description: p.summary || undefined,
     images: (p.images || []).slice(0, 6).map((i) => `https://media.printables.com/${i.filePath}`),
     license: p.license ? p.license.abbreviation || p.license.name : undefined,
-    formats: formatsIn(files),
+    formats: formatsFromNames(files),
   };
 }
 
@@ -184,7 +172,7 @@ async function sketchfabDetails(url: string): Promise<ModelDetails | null> {
   type Resp = {
     description?: string;
     user?: { displayName?: string; username?: string };
-    license?: { label?: string } | null;
+    license?: { label?: string; url?: string } | null;
     isDownloadable?: boolean;
     thumbnails?: { images: Array<{ url: string; width: number }> };
   };
@@ -196,6 +184,7 @@ async function sketchfabDetails(url: string): Promise<ModelDetails | null> {
     description: m.description?.slice(0, 600),
     images: big ? [big.url] : [],
     license: m.license?.label,
+    licenseUrl: licenseLink(m.license?.url),
     // Downloads come as the original upload plus glTF / USDZ conversions.
     formats: m.isDownloadable ? ["GLTF", "GLB", "USDZ"] : [],
   };
@@ -211,14 +200,14 @@ async function grabCadDetails(url: string): Promise<ModelDetails | null> {
     fetchJson<Model>(api, {}, "GrabCAD API"),
     fetchJson<Files>(`${api}/files`, {}, "GrabCAD API").catch(() => ({}) as Files),
   ]);
-  const exts = (files.files || []).map((f) => ` file.${f.extension || ""}`).join(" ");
+  const names = (files.files || []).map((f) => `file.${f.extension || ""}`);
   return {
     url,
     author: model.author?.name,
     description: model.raw_description?.slice(0, 600),
     // GrabCAD refuses its images to other sites; go through AnyStl's proxy.
     images: model.preview_image ? [`/api/image?url=${encodeURIComponent(model.preview_image)}`] : [],
-    formats: formatsIn(exts),
+    formats: formatsFromNames(names),
   };
 }
 

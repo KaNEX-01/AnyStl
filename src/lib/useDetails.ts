@@ -27,7 +27,10 @@ export function fetchDetails(model: ModelResult): Promise<ModelDetails> {
   if (!pending) {
     const params = new URLSearchParams({ url: model.url, platform: model.platform });
     pending = fetch(`/api/details?${params}`)
-      .then((r) => r.json() as Promise<ModelDetails>)
+      .then((r) => {
+        if (!r.ok) throw new Error("Could not read the model details.");
+        return r.json() as Promise<ModelDetails>;
+      })
       .catch((err) => ({ url: model.url, images: [], formats: [], error: String(err) }))
       .then((d) => {
         details.set(model.url, d);

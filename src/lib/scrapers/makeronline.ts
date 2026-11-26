@@ -47,11 +47,12 @@ function toResult(model: MakeronlineModel): ModelResult {
 }
 
 export async function searchMakeronline(query: string, pageNo = 1): Promise<ModelResult[]> {
-  const data = await post<{ data: MakeronlineModel[] }>("/search/model", {
+  // The public search page uses v2.8; the unversioned endpoint returns Server Error.
+  const data = await post<{ data: MakeronlineModel[] }>("/search/model/v2.8", {
     page: pageNo,
     page_size: RESULT_LIMIT,
     keyword: query,
-    print_type: "0",
+    print_type: 0,
     search: 1,
   });
   return (data.data || []).map(toResult);

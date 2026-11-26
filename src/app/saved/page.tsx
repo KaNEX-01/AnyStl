@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import { AlternativesDialog } from "@/components/AlternativesDialog";
 import { ModelGrid } from "@/components/ModelGrid";
 import { LogoLoader } from "@/components/LogoLoader";
 import { PlatformPill } from "@/components/PlatformIcon";
@@ -146,6 +147,7 @@ export default function SavedPage() {
   const [deadOnly, setDeadOnly] = useState(false);
   const [busy, setBusy] = useState<"check" | "import" | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [alternativeFor, setAlternativeFor] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const [selecting, setSelecting] = useState(false);
   const [selectedUrls, setSelectedUrls] = useState<Set<string>>(new Set());
@@ -164,7 +166,9 @@ export default function SavedPage() {
     return [...c.entries()].sort((a, b) => a[0].localeCompare(b[0]));
   }, [saved]);
   const unsortedCount = saved.filter((m) => !m.collections?.length).length;
-  const deadCount = saved.filter((m) => m.linkStatus === "dead").length;
+  const deadModels = useMemo(() => saved.filter((m) => m.linkStatus === "dead"), [saved]);
+  const deadCount = deadModels.length;
+  const alternativeModel = deadModels.find((m) => m.url === alternativeFor);
   const lastChecked = Math.max(0, ...saved.map((m) => m.checkedAt || 0));
 
   const shown = useMemo(() => {
@@ -243,8 +247,9 @@ export default function SavedPage() {
 
   const onCheck = () =>
     run("check", async () => {
-      await checkSavedLinks();
-      return "Links checked.";
+      const checked = await checkSavedLinks();
+      const removed = checked.filter((model) => model.linkStatus === "dead").length;
+      return removed ? `Found ${removed} removed link${removed === 1 ? "" : "s"}. Choose Find alternatives on a marked model.` : "Links checked.";
     });
 
   const onRename = async (name: string) => {
@@ -423,8 +428,13 @@ export default function SavedPage() {
               onDone={stopSelecting}
             />
           )}
-          <ModelGrid models={shown} selected={selecting ? selectedUrls : undefined} onSelect={selecting ? onSelect : undefined} />
+          <ModelGrid models={shown} selected={selecting ? selectedUrls : undefined} onSelect={selecting ? onSelect : undefined}
+            onFindAlternatives={(model) => setAlternativeFor(model.url)} />
         </>
+      )}
+      {alternativeModel && (
+        <AlternativesDialog key={alternativeModel.url} model={alternativeModel} deadUrls={deadModels.map((model) => model.url)}
+          onClose={() => setAlternativeFor(null)} />
       )}
     </main>
   );

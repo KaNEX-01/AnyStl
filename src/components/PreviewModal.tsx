@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { PLATFORMS, SLICER_PLATFORMS } from "@/lib/platforms";
+import { PLATFORMS } from "@/lib/platforms";
+import { isEmbeddedOrca, resolveSlicerTarget, sendModelToOrca } from "@/lib/sendToOrca";
 import { openPreview, usePreview } from "@/lib/usePreview";
 import { useDetails } from "@/lib/useDetails";
 import { getSavedModel, updateSaved, useSaved } from "@/lib/useSaved";
@@ -11,6 +12,7 @@ import { PlatformBadge, SpoolDot } from "./PlatformIcon";
 import { SaveButton, formatNumber, useBadges } from "./ModelCard";
 import { CollectionEditor } from "./CollectionEditor";
 import { LogoLoader } from "./LogoLoader";
+import { ModelLicensePanel } from "./ModelLicensePanel";
 
 /** Note and collections of a saved model, saved as you type (debounced). */
 function SavedEditor({ url }: { url: string }) {
@@ -70,25 +72,58 @@ function SavedEditor({ url }: { url: string }) {
 
 /** Hands the model's print files to OrcaSlicer (sites that allow downloads without an account). */
 function SlicerButton({ model }: { model: ModelResult }) {
-  const [state, setState] = useState<{ busy: boolean; message?: string }>({ busy: false });
+  const [state, setState] = useState<{
+    busy: boolean;
+    message?: string;
+    file?: string;
+    showFile?: boolean;
+  }>({ busy: false });
+  const [copyStatus, setCopyStatus] = useState("");
+  const downloadInput = useRef<HTMLInputElement>(null);
+  const embedded = isEmbeddedOrca();
+  const target = resolveSlicerTarget(model) ?? model;
 
   const onClick = async () => {
-    setState({ busy: true });
+    setCopyStatus("");
+    setState((prev) => ({ ...prev, busy: true, message: undefined }));
     try {
-      const params = new URLSearchParams({ url: model.url, platform: model.platform, title: model.title });
-      const res = await fetch(`/api/slicer?${params}`);
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok || !data.link) throw new Error(data.error || `Failed (${res.status})`);
-      window.location.href = data.link;
-      setState({ busy: false, message: `Sent ${data.count} file${data.count === 1 ? "" : "s"} to OrcaSlicer.` });
+      const result = await sendModelToOrca(model);
+      if (result.opened) {
+        setState({
+          busy: false,
+          message: `Sent ${result.count} file${result.count === 1 ? "" : "s"} to OrcaSlicer.`,
+          file: result.fileUrl,
+          showFile: false,
+        });
+      } else {
+        setState({
+          busy: false,
+          message: result.error,
+          file: result.fileUrl,
+          showFile: true,
+        });
+      }
     } catch (err) {
       setState({ busy: false, message: err instanceof Error ? err.message : String(err) });
+    }
+  };
+
+  const copyFileUrl = async () => {
+    if (!state.file) return;
+    try {
+      await navigator.clipboard.writeText(state.file);
+      setCopyStatus("Download URL copied.");
+    } catch {
+      downloadInput.current?.focus();
+      downloadInput.current?.select();
+      setCopyStatus("Copy the selected URL with Ctrl+C or Command+C.");
     }
   };
 
   return (
     <div className="flex flex-col gap-1.5">
       <button
+        type="button"
         onClick={onClick}
         disabled={state.busy}
         title="Downloads the model's STL / 3MF files straight into OrcaSlicer"
@@ -97,17 +132,48 @@ function SlicerButton({ model }: { model: ModelResult }) {
         {state.busy && <LogoLoader size={16} />}
         {state.busy
           ? // Thingiverse makes everyone sit through an ad countdown first.
-            `Getting files${model.platform === "thingiverse" ? " (~20 s)" : ""}…`
+            `Getting files${target.platform === "thingiverse" ? " (~20 s)" : ""}…`
           : "Open in OrcaSlicer"}
       </button>
-      {state.message && <p className="text-xs text-spool-muted">{state.message}</p>}
+      {state.message && (
+        <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-spool-muted">
+          <p role="status">{state.message}</p>
+          {embedded && state.file && !state.showFile && (
+            <button
+              type="button"
+              onClick={() => setState((prev) => ({ ...prev, showFile: true }))}
+              className="text-spool-accent-soft hover:underline"
+            >
+              Show download URL
+            </button>
+          )}
+        </div>
+      )}
+      {embedded && state.file && state.showFile && (
+        <div className="flex flex-col gap-1.5 rounded-xl border border-spool-line-soft bg-spool-well/60 p-3 text-xs text-spool-muted">
+          <p>Download ready. Open the URL in your regular browser, then import the model files in OrcaSlicer. Extract ZIP files first.</p>
+          <input
+            ref={downloadInput}
+            readOnly
+            aria-label="Download URL"
+            value={state.file}
+            onFocus={(event) => event.currentTarget.select()}
+            className="w-full rounded-lg border border-spool-line bg-spool-field p-2 font-mono text-spool-text"
+          />
+          <div className="flex flex-wrap gap-x-4 gap-y-2 text-spool-accent-soft">
+            <button type="button" onClick={copyFileUrl} className="hover:underline">Copy download URL</button>
+            <button type="button" onClick={onClick} className="hover:underline">Prepare a fresh link</button>
+          </div>
+          {copyStatus && <p role="status">{copyStatus}</p>}
+        </div>
+      )}
     </div>
   );
 }
 
 function Preview({ model }: { model: ModelResult }) {
   const details = useDetails(model, true);
-  const { license, formats } = useBadges(model);
+  const { formats } = useBadges(model);
   const { isSaved } = useSaved();
   const saved = isSaved(model.url);
   const images = useMemo(() => {
@@ -119,15 +185,18 @@ function Preview({ model }: { model: ModelResult }) {
   const [failed, setFailed] = useState<Set<string>>(new Set());
   const image = images.filter((i) => !failed.has(i))[shown] || model.thumbnail;
   const site = PLATFORMS[model.platform].name;
+  const embedded = isEmbeddedOrca();
+  const canSlicer = resolveSlicerTarget(model) !== null;
 
   // Keep what the preview learned on the saved entry, so badges survive restarts.
   useEffect(() => {
     if (!saved || !details || details.error) return;
     const entry = getSavedModel(model.url);
     if (!entry) return;
-    const sameFormats = (entry.formats || []).join() === details.formats.join();
-    if ((details.license && entry.license !== details.license) || (details.formats.length && !sameFormats)) {
-      updateSaved(model.url, { license: details.license, formats: details.formats }).catch(console.error);
+    const nextFormats = [...new Set([...(entry.formats || []), ...details.formats])];
+    const license = entry.license ? undefined : details.license;
+    if (license || nextFormats.length !== (entry.formats?.length || 0)) {
+      updateSaved(model.url, { license, formats: nextFormats }).catch(console.error);
     }
   }, [saved, details, model.url]);
 
@@ -193,9 +262,9 @@ function Preview({ model }: { model: ModelResult }) {
           {model.isAI && <span className="rounded-md bg-spool-chip px-2 py-0.5 text-[#D8B4FE]">AI</span>}
         </div>
 
+        <ModelLicensePanel model={model} details={details} />
+
         <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-sm">
-          <dt className="text-spool-dim">License</dt>
-          <dd className="text-spool-text">{license || (details ? "Not stated" : "…")}</dd>
           <dt className="text-spool-dim">Files</dt>
           <dd className="flex flex-wrap gap-1">
             {formats.length > 0
@@ -252,7 +321,7 @@ function Preview({ model }: { model: ModelResult }) {
           <SaveButton model={model} always />
         </div>
 
-        {SLICER_PLATFORMS.includes(model.platform) && <SlicerButton model={model} />}
+        {!embedded && canSlicer && <SlicerButton model={model} />}
 
         {saved && <SavedEditor key={model.url} url={model.url} />}
       </div>

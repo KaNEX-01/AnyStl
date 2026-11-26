@@ -28,6 +28,8 @@ export interface PlatformInfo {
   searchUrl?: (query: string) => string;
   /** The site's "filament" colour: badge dot, card strip and filter swatch. */
   color: string;
+  /** True when the default search path needs Playwright Chromium (slower / bot-checked). */
+  browser?: boolean;
 }
 
 export const cults3dSearchUrl = (q: string) => `https://cults3d.com/en/search?q=${encodeURIComponent(q)}`;
@@ -50,6 +52,7 @@ export const PLATFORMS: Record<Platform, PlatformInfo> = {
     featuredLabel: "Popular",
     searchUrl: (q) => `https://www.thingiverse.com/search?q=${encodeURIComponent(q)}&type=things`,
     color: "#60A5FA",
+    browser: true,
   },
   printables: {
     group: "community",
@@ -122,6 +125,7 @@ export const PLATFORMS: Record<Platform, PlatformInfo> = {
     featuredLabel: "Free models",
     searchUrl: (q) => `https://www.cgtrader.com/search?keywords=${encodeURIComponent(q)}`,
     color: "#FDBA74",
+    browser: true,
   },
   blenderkit: {
     group: "general",
@@ -180,6 +184,7 @@ export const PLATFORMS: Record<Platform, PlatformInfo> = {
     featuredLabel: "Free models",
     searchUrl: (q) => `https://www.turbosquid.com/Search/3D-Models/${encodeURIComponent(q)}`,
     color: "#93C5FD",
+    browser: true,
   },
   free3d: {
     group: "general",
@@ -188,6 +193,7 @@ export const PLATFORMS: Record<Platform, PlatformInfo> = {
     featuredLabel: "Latest",
     searchUrl: (q) => `https://free3d.com/3d-models/${encodeURIComponent(q.trim().replace(/\s+/g, "-"))}`,
     color: "#86EFAC",
+    browser: true,
   },
   cadnav: {
     group: "general",
@@ -210,6 +216,7 @@ export const PLATFORMS: Record<Platform, PlatformInfo> = {
     featuredLabel: "Popular on Cults3D, MyMiniFactory & more",
     searchUrl: (q) => `https://www.yeggi.com/q/${encodeURIComponent(q.trim().replace(/\s+/g, "+")).replace(/%2B/g, "+")}/`,
     color: "#FACC15",
+    browser: true,
   },
 };
 
@@ -227,5 +234,5 @@ export const EXTERNAL_SEARCHES: Array<{ name: string; url: (query: string) => st
   { name: "STLFinder", url: (q) => `https://www.stlfinder.com/3dmodels/${encodeURIComponent(q.trim().replace(/\s+/g, "-"))}/` },
 ];
 
-/** Sites whose files anyone can download, so "Open in OrcaSlicer" works for them. */
-export const SLICER_PLATFORMS: Platform[] = ["printables", "thingiverse"];
+/** Sites whose files anyone can download, so "Send to Slicer" works directly for them. */
+export const SLICER_PLATFORMS: Platform[] = ["printables", "thingiverse", "myminifactory", "wikimedia"];

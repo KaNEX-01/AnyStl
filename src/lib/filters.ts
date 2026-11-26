@@ -1,4 +1,16 @@
 import { ModelResult, Platform } from "./types";
+import { isModelFormat, ModelFormat } from "./modelFormats";
+
+export type FormatFilter = ModelFormat | "unknown" | null;
+export type LicenseFilter = "commercial" | "noncommercial" | "unknown" | null;
+
+export function parseFormatFilter(value: string | null): FormatFilter {
+  return value === "unknown" || isModelFormat(value) ? value : null;
+}
+
+export function parseLicenseFilter(value: string | null): LicenseFilter {
+  return value === "commercial" || value === "noncommercial" || value === "unknown" ? value : null;
+}
 
 export interface ResultFilters {
   freeOnly: boolean;
@@ -7,6 +19,8 @@ export interface ResultFilters {
   maxPrice: number | null;
   /** Show the same model found on several sites as one card. */
   mergeDuplicates: boolean;
+  format: FormatFilter;
+  license: LicenseFilter;
 }
 
 export const DEFAULT_FILTERS: ResultFilters = {
@@ -14,6 +28,8 @@ export const DEFAULT_FILTERS: ResultFilters = {
   hideAI: false,
   maxPrice: null,
   mergeDuplicates: true,
+  format: null,
+  license: null,
 };
 
 /**
@@ -49,6 +65,9 @@ export function applyFilters(results: ModelResult[], filters: ResultFilters, exc
   return results.filter((m) => {
     if (filters.hideAI && m.isAI) return false;
     if (filters.freeOnly && !isFree(m)) return false;
+    if (filters.format === "unknown" && m.formats?.length) return false;
+    if (filters.format && filters.format !== "unknown" && !m.formats?.includes(filters.format)) return false;
+    if (filters.license && !matchesLicense(m.license, filters.license)) return false;
     if (filters.maxPrice !== null) {
       const price = priceValue(m);
       if (price === null || price > filters.maxPrice) return false;
@@ -59,6 +78,16 @@ export function applyFilters(results: ModelResult[], filters: ResultFilters, exc
     }
     return true;
   });
+}
+
+function matchesLicense(license: string | undefined, filter: NonNullable<LicenseFilter>): boolean {
+  const name = license?.trim().toUpperCase().replace(/[-\s]+/g, " ");
+  if (filter === "unknown") return !name;
+  if (!name) return false;
+  const ccBy = /^CC (?:BY|ATTRIBUTION)\b/.test(name);
+  if (filter === "noncommercial") return ccBy && /\b(?:NC|NONCOMMERCIAL|NON COMMERCIAL)\b/.test(name);
+  // Only recognized permissive CC labels. Do not infer rights from price or unknown terms.
+  return /^(?:CC ?0(?: 1\.0)?|CC (?:BY|ATTRIBUTION)(?: SA| SHAREALIKE| SHARE ALIKE)?(?: [1-4]\.\d)?)(?: INTERNATIONAL)?$/.test(name);
 }
 
 // Words that say nothing about which model it is.

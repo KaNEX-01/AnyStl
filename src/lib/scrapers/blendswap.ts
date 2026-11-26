@@ -35,6 +35,7 @@ async function scrapeListing(url: string): Promise<ModelResult[]> {
         downloads: downloads ?? null,
         platform: PLATFORM,
         price: "Free",
+        formats: ["BLEND"],
       }),
     );
   }

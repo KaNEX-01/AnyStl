@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { SearchBar } from "@/components/SearchBar";
 import { ModelGrid } from "@/components/ModelGrid";
 import { SearchHistory, addToHistory } from "@/components/SearchHistory";
@@ -18,6 +18,10 @@ import { setSearchProgress, SourceState } from "@/lib/useResultCounts";
 import { ModelResult, Platform, SearchStreamEvent, SortOption } from "@/lib/types";
 
 const SUGGESTIONS = ["benchy", "articulated dragon", "gridfinity", "phone stand", "cable clip"];
+const EMBEDDED_BATCH = 24;
+const isEmbedded = () => document.documentElement.hasAttribute("data-orca-theme");
+const noSubscription = () => () => {};
+const notEmbedded = () => false;
 
 type States = Partial<Record<Platform, SourceState>>;
 
@@ -32,12 +36,15 @@ export default function Home() {
   const [sortBy, setSortBy] = useState<SortOption>("fair");
   const [filters, setFilters] = useState<ResultFilters>(DEFAULT_FILTERS);
   const [columns, setColumns] = useState(4);
+  const embedded = useSyncExternalStore(noSubscription, isEmbedded, notEmbedded);
+  const [visibleLimit, setVisibleLimit] = useState(EMBEDDED_BATCH);
   // The query as typed, including "-word" exclusions.
   const [query, setQuery] = useState("");
   const [page, setPage] = useState(1);
   const [activeSources, setActiveSources] = useState<Platform[]>([]);
   const [loadingMore, setLoadingMore] = useState(false);
   const [moreError, setMoreError] = useState<string | null>(null);
+  const [autoLoadPaused, setAutoLoadPaused] = useState(false);
   const [states, setStates] = useState<States>({});
   const [errors, setErrors] = useState<Partial<Record<Platform, string>>>({});
   // Cancels the stream of a search that's been replaced by a newer one.
@@ -79,7 +86,9 @@ export default function Home() {
     ? !!platformCounts[p]
     : (states[p] === "ok" || states[p] === "empty"));
   const pendingCount = Object.values(states).filter((s) => s === "pending").length;
-  const answeredCount = Object.keys(states).length - pendingCount;
+  const totalSources = Object.keys(states).length;
+  const answeredCount = totalSources - pendingCount;
+  const progressPct = totalSources > 0 ? Math.round((answeredCount / totalSources) * 100) : 0;
 
   // Let the server get past sites' bot checks while the user is still typing.
   useEffect(() => {
@@ -107,33 +116,44 @@ export default function Home() {
   ) => {
     setStates((prev) => ({ ...prev, ...Object.fromEntries(sources.map((p) => [p, "pending"])) }));
     const all = sources.length === available.length;
-    await streamSearch(
-      search,
-      pageNo,
-      all ? undefined : sources,
-      (event) => {
-        if (controller.signal.aborted) return;
-        if (event.type === "error") throw new Error(event.error);
-        if (event.type !== "source") return;
-        const fresh = event.results.filter((r) => !seenUrlsRef.current.has(r.url));
-        fresh.forEach((r) => seenUrlsRef.current.add(r.url));
-        if (fresh.length) {
-          setPages((prev) => {
-            const next = [...prev];
-            next[pageNo - 1] = [...(next[pageNo - 1] || []), ...fresh];
-            return next;
-          });
-        }
-        setStates((prev) => ({ ...prev, [event.platform]: event.status }));
-        if (event.error) setErrors((prev) => ({ ...prev, [event.platform]: event.error }));
-        onSource(event, fresh);
-      },
-      controller.signal,
-    );
-    // Anything the stream never reported (it broke off) counts as failed.
-    setStates((prev) =>
-      Object.fromEntries(Object.entries(prev).map(([p, s]) => [p, s === "pending" ? "failed" : s])) as States,
-    );
+    const inWebView = isEmbedded();
+    const deadline = inWebView ? AbortSignal.timeout(45_000) : undefined;
+    try {
+      await streamSearch(
+        search,
+        pageNo,
+        all ? undefined : sources,
+        (event) => {
+          if (controller.signal.aborted) return;
+          if (event.type === "error") throw new Error(event.error);
+          if (event.type !== "source") return;
+          const fresh = event.results.filter((r) => !seenUrlsRef.current.has(r.url));
+          fresh.forEach((r) => seenUrlsRef.current.add(r.url));
+          if (fresh.length) {
+            setPages((prev) => {
+              const next = [...prev];
+              next[pageNo - 1] = [...(next[pageNo - 1] || []), ...fresh];
+              return next;
+            });
+          }
+          setStates((prev) => ({ ...prev, [event.platform]: event.status }));
+          if (event.error) setErrors((prev) => ({ ...prev, [event.platform]: event.error }));
+          onSource(event, fresh);
+        },
+        deadline ? AbortSignal.any([controller.signal, deadline]) : controller.signal,
+        inWebView,
+      );
+    } catch (err) {
+      if (deadline?.aborted) throw new Error("Search took too long. Try again or select fewer sites.");
+      throw err;
+    } finally {
+      // Anything the stream never reported counts as failed, but don't touch a newer search.
+      if (!controller.signal.aborted) {
+        setStates((prev) =>
+          Object.fromEntries(Object.entries(prev).map(([p, s]) => [p, s === "pending" ? "failed" : s])) as States,
+        );
+      }
+    }
   };
 
   const handleSearch = async (raw: string, sources: Platform[] = enabled, push = true) => {
@@ -148,6 +168,9 @@ export default function Home() {
     abortRef.current = controller;
 
     setIsLoading(true);
+    setLoadingMore(false);
+    setAutoLoadPaused(false);
+    setVisibleLimit(EMBEDDED_BATCH);
     setError(null);
     setMoreError(null);
     setSearched(true);
@@ -225,7 +248,7 @@ export default function Home() {
 
   const handleLoadMore = async () => {
     const controller = abortRef.current;
-    if (!controller) return;
+    if (!controller || loadingMore) return;
     const sources = activeSources.filter((p) => enabled.includes(p));
     const nextPage = page + 1;
     setLoadingMore(true);
@@ -234,13 +257,17 @@ export default function Home() {
     // have (some sites keep returning their last page past the end).
     // Sources that merely errored stay, so the next try asks them again.
     const done = new Set<Platform>();
+    let added = 0;
     try {
       await runPage(parseQuery(query).search, nextPage, sources, controller, (event, fresh) => {
+        added += fresh.length;
         if (event.status === "empty" || (event.status === "ok" && fresh.length === 0)) done.add(event.platform);
       });
       if (controller.signal.aborted) return;
       setPage(nextPage);
       setActiveSources((prev) => prev.filter((p) => !done.has(p)));
+      setAutoLoadPaused(added === 0);
+      if (embedded) setVisibleLimit((limit) => limit + EMBEDDED_BATCH);
     } catch (err) {
       if (!controller.signal.aborted) setMoreError(err instanceof Error ? err.message : "Couldn't load more");
     } finally {
@@ -256,7 +283,11 @@ export default function Home() {
   useEffect(() => {
     loadMoreRef.current = handleLoadMore;
   });
-  const autoLoad = canLoadMore && !loadingMore && !moreError;
+  // A selective metadata filter can hide every card on a page. Don't burn
+  // through pages automatically while the sentinel is the only thing visible.
+  const metadataFilterActive = !!(filters.format || filters.license);
+  const manualLoadMore = autoLoadPaused || (metadataFilterActive && shownResults.length === 0);
+  const autoLoad = !embedded && canLoadMore && !loadingMore && !moreError && !manualLoadMore;
   useEffect(() => {
     const el = sentinelRef.current;
     if (!el || !autoLoad) return;
@@ -271,8 +302,49 @@ export default function Home() {
   const hiddenByFilters = allResults.length > 0 && !hasResults;
 
   return (
-    <main className="flex flex-1 flex-col gap-5 px-4 py-6 sm:px-6 lg:px-10 lg:py-7">
-      <SearchBar onSearch={(q) => handleSearch(q)} isLoading={isLoading} initialQuery={query} />
+    <main className="flex flex-1 flex-col gap-5 px-4 pb-6 pt-4 sm:px-6 lg:px-10 lg:pb-7 lg:pt-5">
+      <div
+        className={`relative z-30 -mx-4 flex flex-col gap-3 px-4 py-2 sm:-mx-6 sm:px-6 lg:-mx-10 lg:px-10 ${
+          searched || allResults.length > 0
+            ? "sticky top-0 border-b border-spool-line-soft/75 bg-spool-bg/95 backdrop-blur-md"
+            : ""
+        }`}
+      >
+        <SearchBar onSearch={(q) => handleSearch(q)} isLoading={isLoading} initialQuery={query} />
+
+        {allResults.length > 0 && (
+          <div className="flex flex-col gap-2.5 pb-1">
+            <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
+              <p className="text-sm text-spool-muted">
+                <span className="font-semibold text-spool-text">{shownResults.length} models</span>
+                {isLoading ? (
+                  <span className="ml-2 inline-flex items-center gap-2 font-mono text-xs">
+                    <LogoLoader size={15} />
+                    {answeredCount}/{totalSources} sites
+                  </span>
+                ) : (
+                  <> · {searchTime.toFixed(1)} s</>
+                )}
+              </p>
+              <span className="flex-grow" />
+              <SortDropdown value={sortBy} onChange={setSortBy} />
+              <div className="hidden lg:flex">
+                <ColumnSlider value={columns} onChange={setColumns} />
+              </div>
+            </div>
+            <FilterBar value={filters} onChange={setFilters} excludes={excludes} />
+          </div>
+        )}
+
+        {isLoading && totalSources > 0 && (
+          <div className="absolute inset-x-0 bottom-0 h-[2px] overflow-hidden bg-spool-line-soft/50" aria-hidden="true">
+            <div
+              className="h-full bg-spool-accent transition-[width] duration-300"
+              style={{ width: `${Math.max(8, progressPct)}%` }}
+            />
+          </div>
+        )}
+      </div>
 
       {/* Before the first search */}
       {!searched && !isLoading && (
@@ -298,6 +370,7 @@ export default function Home() {
             ))}
           </div>
           <SearchHistory onSelect={(q) => handleSearch(q)} />
+          <FilterBar value={filters} onChange={setFilters} excludes={excludes} />
         </section>
       )}
 
@@ -312,10 +385,11 @@ export default function Home() {
         </div>
       )}
 
-      {error && !isLoading && allResults.length > 0 && <p className="py-20 text-center text-sm text-[#FCA5A5]">{error}</p>}
+      {error && !isLoading && allResults.length > 0 && <p className="py-4 text-center text-sm text-[#FCA5A5]">{error}</p>}
 
       {!isLoading && searched && allResults.length === 0 && (
         <div className="flex flex-col items-center gap-4 py-20 text-center">
+          <FilterBar value={filters} onChange={setFilters} excludes={excludes} />
           {error ? <p className="text-sm text-[#FCA5A5]">{error}</p>
             : <p className="text-sm text-spool-muted">No results found. Try a different search term.</p>}
           <ExternalSearchLinks query={parseQuery(query).search} failed={failedSources} searched={searchedPlatforms} />
@@ -324,28 +398,7 @@ export default function Home() {
 
       {allResults.length > 0 && (
         <>
-          <div className="flex flex-col gap-3">
-            <div className="flex flex-wrap items-center gap-x-5 gap-y-3">
-              <p className="text-[15px] text-spool-muted">
-                <span className="font-semibold text-spool-text">{shownResults.length} models</span>
-                {isLoading ? (
-                  <span className="ml-2 inline-flex items-center gap-2 font-mono text-xs">
-                    <LogoLoader size={16} />
-                    {answeredCount}/{answeredCount + pendingCount} sites
-                  </span>
-                ) : (
-                  <> · {searchTime.toFixed(1)} s</>
-                )}
-              </p>
-              <span className="flex-grow" />
-              <SortDropdown value={sortBy} onChange={setSortBy} />
-              <div className="hidden lg:flex">
-                <ColumnSlider value={columns} onChange={setColumns} />
-              </div>
-            </div>
-            <FilterBar value={filters} onChange={setFilters} excludes={excludes} />
-            {!isLoading && <ExternalSearchLinks query={parseQuery(query).search} failed={failedSources} searched={searchedPlatforms} />}
-          </div>
+          {!isLoading && <ExternalSearchLinks query={parseQuery(query).search} failed={failedSources} searched={searchedPlatforms} />}
 
           {hiddenByFilters && (
             <p className="py-12 text-center text-sm text-spool-muted">
@@ -353,7 +406,7 @@ export default function Home() {
             </p>
           )}
 
-          {hasResults && <ModelGrid models={shownResults} columns={columns} />}
+          {hasResults && <ModelGrid models={embedded ? shownResults.slice(0, visibleLimit) : shownResults} columns={columns} />}
 
           <div ref={sentinelRef} className="flex flex-col items-center gap-2 pt-4">
             {loadingMore ? (
@@ -370,6 +423,23 @@ export default function Home() {
                   Try again
                 </button>
               </>
+            ) : embedded && !isLoading && (shownResults.length > visibleLimit || canLoadMore) ? (
+              <button
+                type="button"
+                onClick={() => shownResults.length > visibleLimit
+                  ? setVisibleLimit((limit) => limit + EMBEDDED_BATCH)
+                  : handleLoadMore()}
+                className="inline-flex h-11 items-center rounded-[14px] border border-spool-line bg-spool-field px-6 text-sm font-semibold text-spool-text hover:border-spool-accent"
+              >
+                {shownResults.length > visibleLimit ? "Show more models" : "Load more"}
+              </button>
+            ) : !embedded && canLoadMore && manualLoadMore ? (
+              <button
+                onClick={handleLoadMore}
+                className="inline-flex h-11 items-center rounded-[14px] border border-spool-line bg-spool-field px-6 text-sm font-semibold text-spool-text hover:border-spool-accent"
+              >
+                Search more results
+              </button>
             ) : (
               !isLoading && !canLoadMore && <p className="font-mono text-xs text-spool-dim">No more results from any site.</p>
             )}

@@ -43,6 +43,7 @@ function toResult(design: TinkercadDesign): ModelResult {
     // Tinkercad doesn't publish download counts.
     downloads: null,
     platform: PLATFORM,
+    formats: ["STL", "OBJ"],
   });
 }
 

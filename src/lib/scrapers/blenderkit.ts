@@ -9,6 +9,7 @@ interface BlenderKitAsset {
   name: string;
   isFree: boolean;
   isPrivate: boolean;
+  license?: string | null;
   thumbnailMiddleUrl: string | null;
   thumbnailSmallUrl: string | null;
   ratingsCount: { bookmarks?: number } | null;
@@ -30,6 +31,8 @@ function toResult(asset: BlenderKitAsset): ModelResult {
     platform: PLATFORM,
     // Non-free assets need a BlenderKit "Full Plan" subscription.
     price: asset.isFree ? "Free" : "Full Plan",
+    formats: ["BLEND"],
+    ...(asset.license === "cc_zero" ? { license: "CC0 1.0" } : {}),
   });
 }
 
