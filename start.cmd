@@ -32,10 +32,27 @@ exit /b 0
 :args_done
 
 where node >nul 2>&1
-if errorlevel 1 (
-  echo Node.js is required. Install Node 20+ from https://nodejs.org
+if errorlevel 1 goto ensure_node
+for /f %%v in ('node -p "parseInt(process.versions.node.split('.')[0], 10)" 2^>nul') do set "NODE_MAJOR=%%v"
+if not defined NODE_MAJOR goto ensure_node
+if %NODE_MAJOR% LSS 20 goto ensure_node
+goto node_ready
+
+:ensure_node
+echo Node.js 20+ not found on PATH. Checking or downloading official Node.js LTS...
+set "NODE_BIN="
+for /f "usebackq delims=" %%i in (`powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\ensure-node.ps1"`) do set "NODE_BIN=%%i"
+if not defined NODE_BIN (
+  echo Node.js 20+ is required. Install it from https://nodejs.org
   exit /b 1
 )
+if not exist "%NODE_BIN%\node.exe" (
+  echo Node.js 20+ is required. Install it from https://nodejs.org
+  exit /b 1
+)
+set "PATH=%NODE_BIN%;%PATH%"
+
+:node_ready
 
 if not exist node_modules\.bin\next.cmd (
   echo Installing dependencies ^(first run, ~1 min^)...
@@ -47,8 +64,10 @@ if not exist node_modules\.bin\playwright.cmd (
   call npm install || exit /b 1
 )
 
-echo Ensuring Playwright Chromium is installed (used by backend scrapers)...
-call "node_modules\.bin\playwright.cmd" install chromium || exit /b 1
+if not "%ANYSTL_NO_BROWSER%"=="1" (
+  echo Ensuring Playwright Chromium is installed ^(used by backend scrapers^)...
+  call "node_modules\.bin\playwright.cmd" install chromium || exit /b 1
+)
 
 if "%REBUILD%"=="1"           goto do_build
 if not exist .next\BUILD_ID   goto do_build

@@ -193,35 +193,190 @@ fn pick_free_port(preferred: u16) -> Result<u16, String> {
         .port())
 }
 
-fn npm_command() -> &'static str {
-    #[cfg(windows)]
-    {
-        "npm.cmd"
-    }
-    #[cfg(not(windows))]
-    {
-        "npm"
-    }
+struct NodeToolchain {
+    node_exe: PathBuf,
+    npm_exe: PathBuf,
+    extra_path_dir: Option<PathBuf>,
 }
 
-fn check_node_available() -> Result<(), String> {
-    let mut cmd = Command::new("node");
-    cmd.arg("-v").stdout(Stdio::null()).stderr(Stdio::null());
+fn node_major_version(node_exe: &Path) -> Option<u32> {
+    let mut cmd = Command::new(node_exe);
+    cmd.args(["-p", "parseInt(process.versions.node.split('.')[0], 10)"])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null());
     #[cfg(windows)]
     cmd.creation_flags(CREATE_NO_WINDOW);
-    match cmd.status() {
-        Ok(s) if s.success() => Ok(()),
-        _ => Err("Node.js 20+ is required to run AnyStl.\nInstall it from https://nodejs.org and launch AnyStl again.".into()),
+    let out = cmd.output().ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    String::from_utf8_lossy(&out.stdout).trim().parse::<u32>().ok()
+}
+
+fn prepend_path_env(dir: &Path) -> std::ffi::OsString {
+    let mut paths = vec![dir.to_path_buf()];
+    if let Some(existing) = env::var_os("PATH") {
+        paths.extend(env::split_paths(&existing));
+    }
+    env::join_paths(paths).unwrap_or_else(|_| dir.as_os_str().to_os_string())
+}
+
+fn configure_tool_env(cmd: &mut Command, tools: &NodeToolchain) {
+    if let Some(ref dir) = tools.extra_path_dir {
+        cmd.env("PATH", prepend_path_env(dir));
     }
 }
 
-fn run_step(project_dir: &Path, program: &str, args: &[&str], label: &str) -> Result<(), String> {
+#[cfg(windows)]
+fn resolve_windows_node_in_dir(dir: &Path) -> Option<NodeToolchain> {
+    let node_exe = dir.join("node.exe");
+    let npm_exe = dir.join("npm.cmd");
+    if node_exe.is_file() && npm_exe.is_file() && node_major_version(&node_exe).unwrap_or(0) >= 20 {
+        return Some(NodeToolchain {
+            node_exe,
+            npm_exe,
+            extra_path_dir: Some(dir.to_path_buf()),
+        });
+    }
+    None
+}
+
+#[cfg(windows)]
+fn ensure_node_toolchain(window: &WebviewWindow, project_dir: &Path) -> Result<NodeToolchain, String> {
+    if node_major_version(Path::new("node")).unwrap_or(0) >= 20 {
+        return Ok(NodeToolchain {
+            node_exe: PathBuf::from("node"),
+            npm_exe: PathBuf::from("npm.cmd"),
+            extra_path_dir: None,
+        });
+    }
+
+    let local_app_data = env::var_os("LOCALAPPDATA")
+        .map(PathBuf::from)
+        .or_else(|| env::var_os("USERPROFILE").map(|p| PathBuf::from(p).join("AppData").join("Local")));
+
+    let mut candidates = Vec::new();
+    if let Some(ref lad) = local_app_data {
+        candidates.push(lad.join("AnyStl").join("node"));
+        candidates.push(lad.join("Programs").join("nodejs"));
+    }
+    if let Some(pf) = env::var_os("ProgramFiles") {
+        candidates.push(PathBuf::from(pf).join("nodejs"));
+    }
+    for dir in &candidates {
+        if let Some(found) = resolve_windows_node_in_dir(dir) {
+            return Ok(found);
+        }
+    }
+
+    set_splash_status(
+        window,
+        "Downloading Node.js LTS (first run)…",
+        "Installing a private Node.js runtime into %LOCALAPPDATA%\\AnyStl\\node.",
+    );
+
+    let script_path = project_dir.join("scripts").join("ensure-node.ps1");
+    let mut cmd = Command::new("powershell.exe");
+    cmd.args(["-NoProfile", "-ExecutionPolicy", "Bypass"]);
+    if script_path.is_file() {
+        cmd.arg("-File").arg(&script_path);
+    } else {
+        // Fallback inline bootstrap if scripts/ensure-node.ps1 is not present.
+        let inline = r#"
+$ErrorActionPreference = 'Stop'
+$lad = if ($env:LOCALAPPDATA) { $env:LOCALAPPDATA } else { Join-Path $env:USERPROFILE 'AppData\Local' }
+$dest = Join-Path $lad 'AnyStl\node'
+$arch = if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64') { 'arm64' } else { 'x64' }
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+$idx = Invoke-RestMethod -Uri 'https://nodejs.org/dist/index.json' -TimeoutSec 30
+$lts = $idx | Where-Object { $_.lts -and ([int]($_.version.TrimStart('v').Split('.')[0]) -ge 20) -and ($_.files -contains "win-$arch-zip") } | Select-Object -First 1
+if (-not $lts) { throw "No Node.js LTS build found for win-$arch" }
+$name = "node-$($lts.version)-win-$arch"
+$tmp = Join-Path ([IO.Path]::GetTempPath()) ("anystl-node-" + [Guid]::NewGuid().ToString('N'))
+$zip = Join-Path $tmp "$name.zip"
+$ext = Join-Path $tmp 'ext'
+try {
+  New-Item -ItemType Directory -Path $ext -Force | Out-Null
+  Invoke-WebRequest -Uri "https://nodejs.org/dist/$($lts.version)/$name.zip" -OutFile $zip -UseBasicParsing -TimeoutSec 180
+  Expand-Archive -Path $zip -DestinationPath $ext -Force
+  if (Test-Path -LiteralPath $dest) { Remove-Item -LiteralPath $dest -Recurse -Force }
+  New-Item -ItemType Directory -Path (Split-Path -Parent $dest) -Force | Out-Null
+  Move-Item -LiteralPath (Join-Path $ext $name) -Destination $dest -Force
+} finally {
+  if (Test-Path -LiteralPath $tmp) { Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue }
+}
+Write-Output $dest
+"#;
+        cmd.args(["-Command", inline]);
+    }
+    cmd.current_dir(project_dir)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .creation_flags(CREATE_NO_WINDOW);
+
+    let output = cmd
+        .output()
+        .map_err(|e| format!("Could not launch PowerShell to install Node.js: {e}"))?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let tail = tail_lines(&stderr, 10);
+        return Err(format!(
+            "Automatic Node.js installation failed.\nInstall Node.js 20+ manually from https://nodejs.org and launch AnyStl again.\n\n{tail}"
+        ));
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    if let Some(last_line) = stdout.lines().rev().find(|l| !l.trim().is_empty()) {
+        if let Some(found) = resolve_windows_node_in_dir(Path::new(last_line.trim())) {
+            return Ok(found);
+        }
+    }
+    if let Some(ref lad) = local_app_data {
+        if let Some(found) = resolve_windows_node_in_dir(&lad.join("AnyStl").join("node")) {
+            return Ok(found);
+        }
+    }
+    Err("Node.js was downloaded, but node.exe could not be verified.\nInstall Node.js 20+ from https://nodejs.org and try again.".into())
+}
+
+#[cfg(not(windows))]
+fn ensure_node_toolchain(_window: &WebviewWindow, _project_dir: &Path) -> Result<NodeToolchain, String> {
+    if node_major_version(Path::new("node")).unwrap_or(0) >= 20 {
+        Ok(NodeToolchain {
+            node_exe: PathBuf::from("node"),
+            npm_exe: PathBuf::from("npm"),
+            extra_path_dir: None,
+        })
+    } else {
+        Err("Node.js 20+ is required to run AnyStl.\nInstall it from https://nodejs.org and launch AnyStl again.".into())
+    }
+}
+
+fn tail_lines(text: &str, count: usize) -> String {
+    text.lines()
+        .rev()
+        .take(count)
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn run_step(
+    project_dir: &Path,
+    tools: &NodeToolchain,
+    program: &Path,
+    args: &[&str],
+    label: &str,
+) -> Result<(), String> {
     let mut cmd = Command::new(program);
     cmd.args(args)
         .current_dir(project_dir)
         .env("NEXT_TELEMETRY_DISABLED", "1")
         .stdout(Stdio::null())
         .stderr(Stdio::piped());
+    configure_tool_env(&mut cmd, tools);
     #[cfg(windows)]
     cmd.creation_flags(CREATE_NO_WINDOW);
 
@@ -232,17 +387,113 @@ fn run_step(project_dir: &Path, program: &str, args: &[&str], label: &str) -> Re
         Ok(())
     } else {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        let tail: String = stderr
-            .lines()
-            .rev()
-            .take(10)
-            .collect::<Vec<_>>()
-            .into_iter()
-            .rev()
-            .collect::<Vec<_>>()
-            .join("\n");
+        let tail = tail_lines(&stderr, 10);
         Err(format!("{label} failed:\n{tail}"))
     }
+}
+
+fn env_no_browser(project_dir: &Path) -> bool {
+    if env::var("ANYSTL_NO_BROWSER").ok().as_deref() == Some("1") {
+        return true;
+    }
+    for file in [".env.local", ".env"] {
+        if let Ok(content) = fs::read_to_string(project_dir.join(file)) {
+            for line in content.lines() {
+                let trimmed = line.trim();
+                if trimmed.starts_with('#') {
+                    continue;
+                }
+                if let Some(val) = trimmed.strip_prefix("ANYSTL_NO_BROWSER=") {
+                    if val.trim().trim_matches('"').trim_matches('\'') == "1" {
+                        return true;
+                    }
+                }
+            }
+        }
+    }
+    false
+}
+
+fn playwright_chromium_installed(project_dir: &Path, tools: &NodeToolchain) -> bool {
+    let pw_cli = project_dir
+        .join("node_modules")
+        .join("playwright")
+        .join("cli.js");
+    if !pw_cli.is_file() {
+        return false;
+    }
+    let mut cmd = Command::new(&tools.node_exe);
+    cmd.arg(&pw_cli)
+        .args(["install", "--dry-run", "chromium"])
+        .current_dir(project_dir)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null());
+    configure_tool_env(&mut cmd, tools);
+    #[cfg(windows)]
+    cmd.creation_flags(CREATE_NO_WINDOW);
+
+    let Ok(output) = cmd.output() else {
+        return false;
+    };
+    if !output.status.success() {
+        return false;
+    }
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let mut locations = Vec::new();
+    for line in stdout.lines() {
+        if let Some(rest) = line.split("Install location:").nth(1) {
+            let loc = rest.trim();
+            if !loc.is_empty() {
+                locations.push(PathBuf::from(loc));
+            }
+        }
+    }
+    !locations.is_empty()
+        && locations
+            .iter()
+            .all(|loc| loc.join("INSTALLATION_COMPLETE").is_file())
+}
+
+fn ensure_playwright_browser(
+    window: &WebviewWindow,
+    project_dir: &Path,
+    tools: &NodeToolchain,
+) -> Result<(), String> {
+    if env_no_browser(project_dir) || playwright_chromium_installed(project_dir, tools) {
+        return Ok(());
+    }
+    set_splash_status(
+        window,
+        "Downloading Chromium for scrapers (first run)…",
+        "Used for sites behind bot checks. This only happens once.",
+    );
+
+    #[cfg(not(windows))]
+    {
+        let script = project_dir.join("scripts").join("install-browsers.sh");
+        if script.is_file() {
+            return run_step(
+                project_dir,
+                tools,
+                Path::new("bash"),
+                &["scripts/install-browsers.sh"],
+                "install Playwright Chromium",
+            );
+        }
+    }
+
+    let pw_cli = project_dir
+        .join("node_modules")
+        .join("playwright")
+        .join("cli.js");
+    let pw_arg = pw_cli.to_string_lossy().into_owned();
+    run_step(
+        project_dir,
+        tools,
+        &tools.node_exe,
+        &[&pw_arg, "install", "chromium"],
+        "playwright install chromium",
+    )
 }
 
 #[cfg(target_os = "linux")]
@@ -381,10 +632,13 @@ fn bootstrap_server(
         return;
     };
 
-    if let Err(err) = check_node_available() {
-        set_splash_error(&window, &err);
-        return;
-    }
+    let tools = match ensure_node_toolchain(&window, &project_dir) {
+        Ok(t) => t,
+        Err(err) => {
+            set_splash_error(&window, &err);
+            return;
+        }
+    };
 
     let next_bin = project_dir
         .join("node_modules")
@@ -392,17 +646,26 @@ fn bootstrap_server(
         .join("dist")
         .join("bin")
         .join("next");
+    let pw_cli = project_dir
+        .join("node_modules")
+        .join("playwright")
+        .join("cli.js");
 
-    if !next_bin.is_file() {
+    if !next_bin.is_file() || !pw_cli.is_file() {
         set_splash_status(
             &window,
             "Installing dependencies (first run)…",
             &project_dir.display().to_string(),
         );
-        if let Err(err) = run_step(&project_dir, npm_command(), &["install"], "npm install") {
+        if let Err(err) = run_step(&project_dir, &tools, &tools.npm_exe, &["install"], "npm install") {
             set_splash_error(&window, &err);
             return;
         }
+    }
+
+    if let Err(err) = ensure_playwright_browser(&window, &project_dir, &tools) {
+        set_splash_error(&window, &err);
+        return;
     }
 
     let had_build = project_dir.join(".next").join("BUILD_ID").is_file();
@@ -418,7 +681,7 @@ fn bootstrap_server(
             "This only happens once."
         };
         set_splash_status(&window, heading, detail);
-        if let Err(err) = run_step(&project_dir, npm_command(), &["run", "build"], "npm run build") {
+        if let Err(err) = run_step(&project_dir, &tools, &tools.npm_exe, &["run", "build"], "npm run build") {
             set_splash_error(&window, &err);
             return;
         }
@@ -446,7 +709,7 @@ fn bootstrap_server(
         None
     };
 
-    let mut cmd = Command::new("node");
+    let mut cmd = Command::new(&tools.node_exe);
     cmd.arg(&next_bin)
         .args(["start", "--hostname", "127.0.0.1", "--port", &port.to_string()])
         .current_dir(&project_dir)
@@ -455,6 +718,7 @@ fn bootstrap_server(
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::piped());
+    configure_tool_env(&mut cmd, &tools);
 
     if let Some(disp) = xvfb_display {
         cmd.env("ANYSTL_XVFB_DISPLAY", disp);

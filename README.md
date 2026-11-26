@@ -27,10 +27,9 @@ I made this with Claude
 
 ## How to run
 
-1. Install [Node.js 20+](https://nodejs.org)
-2. Double-click the start script:
-   - **Windows:** `start.cmd`
-   - **Linux / macOS:** `start.sh`
+1. Double-click the start script:
+   - **Windows:** `start.cmd` (automatically downloads a private Node.js LTS runtime into `%LOCALAPPDATA%\AnyStl\node` if Node.js 20+ is not installed, then installs packages and Chromium)
+   - **Linux / macOS:** install [Node.js 20+](https://nodejs.org) and run `start.sh`
 
 That's it. The first run installs everything and opens `http://localhost:3000` in your default browser. Later runs start instantly. Running the script again while AnyStl is already up just opens a new tab.
 
@@ -41,9 +40,9 @@ To stop: close the AnyStl browser tab, close the terminal window, or press `Ctrl
 Prefer a dedicated window instead of a browser tab? AnyStl includes a lightweight Tauri v2 desktop launcher in [`desktop/`](desktop/):
 
 - **Linux:** run `npm run desktop:install-linux` (requires Rust and `webkit2gtk-4.1`). This builds the native `anystl` binary, installs it to `~/.local/bin/anystl`, and adds an **AnyStl** entry to your application launcher.
-- **Windows:** run `cargo build --manifest-path desktop/Cargo.toml --release` on Windows (or download `anystl.exe` from the [Desktop App Build](.github/workflows/desktop-release.yml) GitHub Actions workflow) and place `anystl.exe` inside your AnyStl folder.
+- **Windows:** place `anystl.exe` (built with `cargo build --manifest-path desktop/Cargo.toml --release` or downloaded from the [Desktop App Build](.github/workflows/desktop-release.yml) workflow) inside your AnyStl folder and launch it — on the first run it automatically downloads Node.js LTS (no admin rights needed), installs npm packages and Playwright Chromium, and builds AnyStl. You can also run `powershell -ExecutionPolicy Bypass -File desktop\install-windows.ps1` (add `-DesktopShortcut` for a desktop icon) to pre-install everything and add a Start Menu shortcut.
 
-Opening the desktop app starts the local Next.js server automatically with no terminal window, opens external model pages in your default browser, passes `orcaslicer://` links straight to OrcaSlicer, and shuts down the server when you close the window.
+Opening the desktop app installs any missing dependencies on first launch, starts the local Next.js server automatically with no terminal window, opens external model pages in your default browser, passes `orcaslicer://` links straight to OrcaSlicer, and shuts down the server when you close the window.
 
 ## How it works
 
