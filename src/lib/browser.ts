@@ -3,26 +3,42 @@ import { chromium, Browser, BrowserContext, Page } from "playwright";
 let browserInstance: Browser | null = null;
 let contextInstance: BrowserContext | null = null;
 
+const LAUNCH_ARGS = [
+  "--no-sandbox",
+  "--disable-setuid-sandbox",
+  "--disable-blink-features=AutomationControlled",
+  "--disable-infobars",
+  "--window-size=1920,1080",
+];
+
+async function launchChromium(): Promise<Browser> {
+  // Prefer Playwright's full Chromium ("new headless") build; fall back to
+  // system Chrome or Edge when Playwright's browser download is unavailable.
+  const channels: Array<"chromium" | "chrome" | "msedge"> =
+    process.platform === "win32" ? ["chromium", "chrome", "msedge"] : ["chromium", "chrome"];
+  let lastErr: unknown;
+  for (const channel of channels) {
+    try {
+      return await chromium.launch({
+        channel,
+        headless: true,
+        // Don't advertise that the browser is being automated.
+        ignoreDefaultArgs: ["--enable-automation"],
+        args: LAUNCH_ARGS,
+      });
+    } catch (err) {
+      lastErr = err;
+    }
+  }
+  throw lastErr;
+}
+
 export async function getBrowser(): Promise<Browser> {
   if (browserInstance && browserInstance.isConnected()) {
     return browserInstance;
   }
   contextInstance = null;
-  browserInstance = await chromium.launch({
-    // The full Chromium build in "new headless" mode behaves like a normal
-    // browser; the stripped-down headless shell gets bounced by bot checks.
-    channel: "chromium",
-    headless: true,
-    // Don't advertise that the browser is being automated.
-    ignoreDefaultArgs: ["--enable-automation"],
-    args: [
-      "--no-sandbox",
-      "--disable-setuid-sandbox",
-      "--disable-blink-features=AutomationControlled",
-      "--disable-infobars",
-      "--window-size=1920,1080",
-    ],
-  });
+  browserInstance = await launchChromium();
   return browserInstance;
 }
 
@@ -32,8 +48,14 @@ export async function createStealthContext(browser: Browser): Promise<BrowserCon
   // Deliberately no faked navigator properties or timezone: bot checks look
   // for exactly those inconsistencies, and the real values pass fine.
   const major = browser.version().split(".")[0];
+  const osToken =
+    process.platform === "win32"
+      ? "Windows NT 10.0; Win64; x64"
+      : process.platform === "darwin"
+        ? "Macintosh; Intel Mac OS X 10_15_7"
+        : "X11; Linux x86_64";
   return browser.newContext({
-    userAgent: `Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${major}.0.0.0 Safari/537.36`,
+    userAgent: `Mozilla/5.0 (${osToken}) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${major}.0.0.0 Safari/537.36`,
     viewport: { width: 1920, height: 1080 },
     locale: "en-US",
   });

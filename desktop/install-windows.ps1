@@ -35,7 +35,7 @@ if ($LASTEXITCODE -ne 0) { throw "npm install failed." }
 # 3. Install Playwright Chromium (unless skipped or API-only mode is set).
 if (-not $SkipBrowser -and $env:ANYSTL_NO_BROWSER -ne "1") {
     Write-Host "`n-> Ensuring Playwright Chromium is installed..."
-    & (Join-Path $Root "node_modules\.bin\playwright.cmd") install chromium
+    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $Root "scripts\install-browsers.ps1")
     if ($LASTEXITCODE -ne 0) { throw "Playwright Chromium install failed." }
 }
 

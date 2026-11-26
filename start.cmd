@@ -79,7 +79,7 @@ if not exist "node_modules\playwright\cli.js" (
 
 if not "%ANYSTL_NO_BROWSER%"=="1" (
   echo Ensuring Playwright Chromium is installed ^(used by backend scrapers^)...
-  node "node_modules\playwright\cli.js" install chromium
+  powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\install-browsers.ps1"
   if errorlevel 1 goto fail
 )
 

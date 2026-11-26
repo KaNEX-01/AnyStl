@@ -468,6 +468,21 @@ fn ensure_playwright_browser(
         "Used for sites behind bot checks. This only happens once.",
     );
 
+    #[cfg(windows)]
+    {
+        let script = project_dir.join("scripts").join("install-browsers.ps1");
+        if script.is_file() {
+            let script_arg = script.to_string_lossy().into_owned();
+            return run_step(
+                project_dir,
+                tools,
+                Path::new("powershell.exe"),
+                &["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", &script_arg],
+                "install Playwright Chromium",
+            );
+        }
+    }
+
     #[cfg(not(windows))]
     {
         let script = project_dir.join("scripts").join("install-browsers.sh");
