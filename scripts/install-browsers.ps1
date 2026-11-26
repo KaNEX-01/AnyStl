@@ -1,8 +1,8 @@
-# Installs the Playwright Chromium browser on Windows using Windows native TLS
-# (curl.exe / PowerShell Schannel) instead of Node's OpenSSL downloader, which
-# can fail with EPROTO invalid session id behind some ISPs / HTTPS filters.
-# Also adds Google's official Chrome for Testing mirror as a fallback and
-# gracefully falls back to system Chrome/Edge if all downloads are blocked.
+﻿# Installs the Playwright full Chromium browser on Windows using Windows native
+# TLS (curl.exe / PowerShell Schannel) instead of Node's OpenSSL downloader.
+# Prefers Google's official Chrome for Testing CDN (storage.googleapis.com),
+# skips unused ffmpeg/headless-shell packages, and falls back to installed
+# Chrome or Microsoft Edge if downloads are blocked.
 
 $ErrorActionPreference = "Stop"
 
@@ -19,7 +19,7 @@ if ($LASTEXITCODE -ne 0) {
     throw "Could not determine Playwright browser downloads:`n$($dryRun -join "`n")"
 }
 
-# Parse packages: @{ Location = "..."; Urls = @("...") }
+# Parse packages: @{ Location = "..."; Urls = List<string> }
 $packages = @()
 $byLoc = @{}
 $current = $null
@@ -37,17 +37,24 @@ foreach ($line in $dryRun) {
         }
     } elseif ($current -and $text -match 'Download (?:url|fallback \d+):\s*(\S+)$') {
         $u = $Matches[1].Trim()
-        if (-not $current.Urls.Contains($u)) {
-            $current.Urls.Add($u)
-        }
-        # Mirror Chrome for Testing builds to Google's official storage bucket.
+        # Prefer Google's official Chrome for Testing storage mirror first, since
+        # cdn.playwright.dev is frequently TLS-reset by some ISPs / HTTPS filters.
         if ($u -match '^https://cdn\.playwright\.dev/builds/cft/(.+)$') {
             $gUrl = "https://storage.googleapis.com/chrome-for-testing-public/$($Matches[1])"
             if (-not $current.Urls.Contains($gUrl)) {
-                $current.Urls.Add($gUrl)
+                $current.Urls.Insert(0, $gUrl)
             }
         }
+        if (-not $current.Urls.Contains($u)) {
+            $current.Urls.Add($u)
+        }
     }
+}
+
+# AnyStl uses `channel: "chromium"` (full Chromium) only — skip ffmpeg and headless-shell.
+$fullChromium = @($packages | Where-Object { (Split-Path -Leaf $_.Location) -match '^chromium-\d+' })
+if ($fullChromium.Count -gt 0) {
+    $packages = $fullChromium
 }
 
 if ($packages.Count -eq 0) {
@@ -74,8 +81,15 @@ function Invoke-NativeDownload {
     # 1. Windows built-in curl.exe (uses Schannel TLS, fast & reliable).
     $curlExe = Get-Command curl.exe -ErrorAction SilentlyContinue
     if ($curlExe) {
-        & $curlExe.Source --ssl-no-revoke -fL --retry 3 --connect-timeout 20 -# -o $OutFile $Url
-        if ($LASTEXITCODE -eq 0 -and (Test-Path -LiteralPath $OutFile) -and (Get-Item -LiteralPath $OutFile).Length -gt 0) {
+        $prevEap = $ErrorActionPreference
+        $ErrorActionPreference = "Continue"
+        try {
+            & $curlExe.Source --ssl-no-revoke -fL --retry 1 --connect-timeout 15 -# -o $OutFile $Url
+            $curlExit = $LASTEXITCODE
+        } finally {
+            $ErrorActionPreference = $prevEap
+        }
+        if ($curlExit -eq 0 -and (Test-Path -LiteralPath $OutFile) -and (Get-Item -LiteralPath $OutFile).Length -gt 0) {
             return $true
         }
         if (Test-Path -LiteralPath $OutFile) {
@@ -86,7 +100,7 @@ function Invoke-NativeDownload {
     # 2. PowerShell .NET Schannel fallback.
     try {
         [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-        Invoke-WebRequest -Uri $Url -OutFile $OutFile -UseBasicParsing -TimeoutSec 300
+        Invoke-WebRequest -Uri $Url -OutFile $OutFile -UseBasicParsing -TimeoutSec 180
         if ((Test-Path -LiteralPath $OutFile) -and (Get-Item -LiteralPath $OutFile).Length -gt 0) {
             return $true
         }
@@ -102,8 +116,15 @@ function Expand-ZipFast {
     param([string]$ZipPath, [string]$DestDir)
     $tarExe = Get-Command tar.exe -ErrorAction SilentlyContinue
     if ($tarExe) {
-        & $tarExe.Source -xf $ZipPath -C $DestDir
-        if ($LASTEXITCODE -eq 0) { return }
+        $prevEap = $ErrorActionPreference
+        $ErrorActionPreference = "Continue"
+        try {
+            & $tarExe.Source -xf $ZipPath -C $DestDir
+            $tarExit = $LASTEXITCODE
+        } finally {
+            $ErrorActionPreference = $prevEap
+        }
+        if ($tarExit -eq 0) { return }
     }
     Expand-Archive -Path $ZipPath -DestinationPath $DestDir -Force
 }

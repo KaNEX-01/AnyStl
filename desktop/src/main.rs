@@ -448,6 +448,19 @@ fn playwright_chromium_installed(project_dir: &Path, tools: &NodeToolchain) -> b
             }
         }
     }
+    let full_chromium: Vec<&PathBuf> = locations
+        .iter()
+        .filter(|loc| {
+            loc.file_name()
+                .and_then(|n| n.to_str())
+                .is_some_and(|n| n.starts_with("chromium-"))
+        })
+        .collect();
+    if !full_chromium.is_empty() {
+        return full_chromium
+            .iter()
+            .all(|loc| loc.join("INSTALLATION_COMPLETE").is_file());
+    }
     !locations.is_empty()
         && locations
             .iter()
