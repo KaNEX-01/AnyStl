@@ -1,13 +1,34 @@
-﻿# Installs the Playwright full Chromium browser on Windows using Windows native
-# TLS (curl.exe / PowerShell Schannel) instead of Node's OpenSSL downloader.
-# Prefers Google's official Chrome for Testing CDN (storage.googleapis.com),
-# skips unused ffmpeg/headless-shell packages, and falls back to installed
-# Chrome or Microsoft Edge if downloads are blocked.
+﻿# Ensures a Chromium-based browser is available for Playwright on Windows.
+# If Google Chrome or Microsoft Edge is already installed, AnyStl uses it
+# directly (clean isolated context, zero ~160 MB download) unless
+# ANYSTL_FORCE_PLAYWRIGHT_BROWSER=1 is set. Otherwise downloads Playwright's
+# full Chromium via Windows native TLS (Schannel), preferring Google's official
+# Chrome for Testing CDN.
 
 $ErrorActionPreference = "Stop"
 
 $Root = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 Set-Location $Root
+
+function Test-SystemBrowser {
+    $paths = @(
+        (Join-Path $env:ProgramFiles "Google\Chrome\Application\chrome.exe"),
+        (Join-Path ${env:ProgramFiles(x86)} "Google\Chrome\Application\chrome.exe"),
+        (Join-Path $env:LOCALAPPDATA "Google\Chrome\Application\chrome.exe"),
+        (Join-Path $env:ProgramFiles "Microsoft\Edge\Application\msedge.exe"),
+        (Join-Path ${env:ProgramFiles(x86)} "Microsoft\Edge\Application\msedge.exe")
+    )
+    foreach ($p in $paths) {
+        if ($p -and (Test-Path -LiteralPath $p)) { return $p }
+    }
+    return $null
+}
+
+$sysBrowser = Test-SystemBrowser
+if ($sysBrowser -and $env:ANYSTL_FORCE_PLAYWRIGHT_BROWSER -ne "1") {
+    Write-Host "Using installed browser: $sysBrowser"
+    exit 0
+}
 
 $pwCli = Join-Path $Root "node_modules\playwright\cli.js"
 if (-not (Test-Path -LiteralPath $pwCli)) {
@@ -37,8 +58,6 @@ foreach ($line in $dryRun) {
         }
     } elseif ($current -and $text -match 'Download (?:url|fallback \d+):\s*(\S+)$') {
         $u = $Matches[1].Trim()
-        # Prefer Google's official Chrome for Testing storage mirror first, since
-        # cdn.playwright.dev is frequently TLS-reset by some ISPs / HTTPS filters.
         if ($u -match '^https://cdn\.playwright\.dev/builds/cft/(.+)$') {
             $gUrl = "https://storage.googleapis.com/chrome-for-testing-public/$($Matches[1])"
             if (-not $current.Urls.Contains($gUrl)) {
@@ -61,30 +80,16 @@ if ($packages.Count -eq 0) {
     throw "Could not parse Playwright Chromium install plan."
 }
 
-function Test-SystemBrowser {
-    $paths = @(
-        (Join-Path $env:ProgramFiles "Google\Chrome\Application\chrome.exe"),
-        (Join-Path ${env:ProgramFiles(x86)} "Google\Chrome\Application\chrome.exe"),
-        (Join-Path $env:LOCALAPPDATA "Google\Chrome\Application\chrome.exe"),
-        (Join-Path $env:ProgramFiles "Microsoft\Edge\Application\msedge.exe"),
-        (Join-Path ${env:ProgramFiles(x86)} "Microsoft\Edge\Application\msedge.exe")
-    )
-    foreach ($p in $paths) {
-        if ($p -and (Test-Path -LiteralPath $p)) { return $p }
-    }
-    return $null
-}
-
 function Invoke-NativeDownload {
     param([string]$Url, [string]$OutFile)
 
-    # 1. Windows built-in curl.exe (uses Schannel TLS, fast & reliable).
+    # 1. Windows built-in curl.exe (Schannel TLS, abort quickly if stalled).
     $curlExe = Get-Command curl.exe -ErrorAction SilentlyContinue
     if ($curlExe) {
         $prevEap = $ErrorActionPreference
         $ErrorActionPreference = "Continue"
         try {
-            & $curlExe.Source --ssl-no-revoke -fL --retry 1 --connect-timeout 15 -# -o $OutFile $Url
+            & $curlExe.Source --ssl-no-revoke -fL --retry 1 --connect-timeout 15 --speed-limit 10240 --speed-time 15 -# -o $OutFile $Url
             $curlExit = $LASTEXITCODE
         } finally {
             $ErrorActionPreference = $prevEap
@@ -100,7 +105,7 @@ function Invoke-NativeDownload {
     # 2. PowerShell .NET Schannel fallback.
     try {
         [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-        Invoke-WebRequest -Uri $Url -OutFile $OutFile -UseBasicParsing -TimeoutSec 180
+        Invoke-WebRequest -Uri $Url -OutFile $OutFile -UseBasicParsing -TimeoutSec 45
         if ((Test-Path -LiteralPath $OutFile) -and (Get-Item -LiteralPath $OutFile).Length -gt 0) {
             return $true
         }
@@ -178,7 +183,6 @@ try {
         New-Item -ItemType File -Path (Join-Path $loc "DEPENDENCIES_VALIDATED") -Force | Out-Null
     }
 
-    # Clear any stale lock left by an interrupted playwright install.
     $firstParent = Split-Path -Parent $packages[0].Location
     if ($firstParent) {
         $lockDir = Join-Path $firstParent "__dirlock"
@@ -193,7 +197,6 @@ try {
 }
 
 if ($hadFailure) {
-    $sysBrowser = Test-SystemBrowser
     if ($sysBrowser) {
         Write-Host "Could not download Playwright Chromium; AnyStl will use your installed browser ($sysBrowser)." -ForegroundColor Yellow
         exit 0

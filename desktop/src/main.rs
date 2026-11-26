@@ -467,12 +467,38 @@ fn playwright_chromium_installed(project_dir: &Path, tools: &NodeToolchain) -> b
             .all(|loc| loc.join("INSTALLATION_COMPLETE").is_file())
 }
 
+#[cfg(windows)]
+fn has_windows_system_browser() -> bool {
+    if env::var("ANYSTL_FORCE_PLAYWRIGHT_BROWSER").ok().as_deref() == Some("1") {
+        return false;
+    }
+    let mut candidates = Vec::new();
+    for var in ["ProgramFiles", "ProgramFiles(x86)"] {
+        if let Some(root) = env::var_os(var).map(PathBuf::from) {
+            candidates.push(root.join("Google").join("Chrome").join("Application").join("chrome.exe"));
+            candidates.push(root.join("Microsoft").join("Edge").join("Application").join("msedge.exe"));
+        }
+    }
+    if let Some(lad) = env::var_os("LOCALAPPDATA").map(PathBuf::from) {
+        candidates.push(lad.join("Google").join("Chrome").join("Application").join("chrome.exe"));
+    }
+    candidates.iter().any(|p| p.is_file())
+}
+
+#[cfg(not(windows))]
+fn has_windows_system_browser() -> bool {
+    false
+}
+
 fn ensure_playwright_browser(
     window: &WebviewWindow,
     project_dir: &Path,
     tools: &NodeToolchain,
 ) -> Result<(), String> {
-    if env_no_browser(project_dir) || playwright_chromium_installed(project_dir, tools) {
+    if env_no_browser(project_dir)
+        || has_windows_system_browser()
+        || playwright_chromium_installed(project_dir, tools)
+    {
         return Ok(());
     }
     set_splash_status(
