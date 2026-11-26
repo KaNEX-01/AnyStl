@@ -1,5 +1,4 @@
 import type { Metadata } from "next";
-import { JetBrains_Mono, Space_Grotesk } from "next/font/google";
 import { connection } from "next/server";
 import HeartbeatKeepalive from "@/components/HeartbeatKeepalive";
 import { ComparisonTray } from "@/components/ComparisonTray";
@@ -9,16 +8,6 @@ import { PreviewModal } from "@/components/PreviewModal";
 import { SearchPlatformsProvider } from "@/components/SearchPlatformsProvider";
 import { availableSearchPlatforms } from "@/lib/sourceAvailability";
 import "./globals.css";
-
-const spaceGrotesk = Space_Grotesk({
-  variable: "--font-space-grotesk",
-  subsets: ["latin", "latin-ext"],
-});
-
-const jetbrainsMono = JetBrains_Mono({
-  variable: "--font-jetbrains-mono",
-  subsets: ["latin", "latin-ext"],
-});
 
 export const metadata: Metadata = {
   title: "AnyStl - 3D Model Meta Search",
@@ -38,7 +27,7 @@ export default async function RootLayout({
   return (
     <html
       lang="en"
-      className={`${spaceGrotesk.variable} ${jetbrainsMono.variable} h-full antialiased dark`}
+      className="h-full antialiased dark"
       suppressHydrationWarning
     >
       <body className="min-h-full bg-spool-bg text-spool-text" suppressHydrationWarning>
