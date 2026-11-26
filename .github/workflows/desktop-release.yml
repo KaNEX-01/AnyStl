@@ -1,0 +1,60 @@
+name: Desktop App Build (Linux & Windows)
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  build-desktop:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: ubuntu-24.04
+            name: linux
+          - platform: windows-latest
+            name: windows
+
+    runs-on: ${{ matrix.platform }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo dependencies
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: desktop
+
+      - name: Install Linux WebKitGTK dependencies
+        if: matrix.name == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+
+      - name: Build Tauri desktop launcher (Linux)
+        if: matrix.name == 'linux'
+        run: cargo build --manifest-path desktop/Cargo.toml --release
+
+      - name: Build Tauri desktop launcher (Windows .exe)
+        if: matrix.name == 'windows'
+        run: cargo build --manifest-path desktop/Cargo.toml --release
+
+      - name: Upload Linux binary
+        if: matrix.name == 'linux'
+        uses: actions/upload-artifact@v4
+        with:
+          name: AnyStl-linux-x86_64
+          path: desktop/target/release/anystl
+
+      - name: Upload Windows executable
+        if: matrix.name == 'windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: AnyStl-windows-x86_64
+          path: desktop/target/release/anystl.exe

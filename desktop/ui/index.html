@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>AnyStl</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #171412;
+      --card: #221d1a;
+      --line: #3a322c;
+      --text: #f3ede7;
+      --muted: #bdb1a7;
+      --dim: #8c8078;
+      --accent: #ff7a1a;
+      --accent-soft: #ffb072;
+      --err: #fca5a5;
+    }
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      height: 100%;
+      background: var(--bg);
+      color: var(--text);
+      font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+    }
+    body {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+    }
+    .panel {
+      width: 100%;
+      max-width: 460px;
+      padding: 36px 32px;
+      border-radius: 22px;
+      background: var(--card);
+      border: 1px solid var(--line);
+      text-align: center;
+      box-shadow: 0 24px 64px rgba(0, 0, 0, 0.45);
+    }
+    .logo {
+      width: 72px;
+      height: 72px;
+      margin: 0 auto 18px;
+      display: block;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .ring {
+      transform-origin: 32px 32px;
+      animation: spin 1.6s linear infinite;
+    }
+    h1 {
+      margin: 0;
+      font-size: 26px;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+    }
+    .status {
+      margin: 12px 0 0;
+      font-size: 14px;
+      color: var(--muted);
+      line-height: 1.5;
+    }
+    .detail {
+      margin: 10px 0 0;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 12px;
+      color: var(--dim);
+      word-break: break-word;
+    }
+    .error {
+      display: none;
+      margin-top: 18px;
+      padding: 14px;
+      border-radius: 12px;
+      background: rgba(127, 29, 29, 0.28);
+      border: 1px solid rgba(252, 165, 165, 0.35);
+      color: var(--err);
+      font-size: 13px;
+      text-align: left;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    .error.visible { display: block; }
+  </style>
+</head>
+<body>
+  <div class="panel">
+    <svg class="logo" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" aria-hidden="true">
+      <rect width="64" height="64" rx="14" fill="#1F1B18"/>
+      <g transform="translate(5 5) scale(0.84)">
+        <line x1="43" y1="43" x2="57" y2="57" stroke="#FF7A1A" stroke-width="8" stroke-linecap="round"/>
+        <circle cx="27" cy="27" r="21" fill="#1F1B18" stroke="#FF7A1A" stroke-width="6"/>
+        <polygon points="27,14 38,20.3 38,32.9 27,39.2 16,32.9 16,20.3" fill="none" stroke="#F3EDE7" stroke-width="2.6" stroke-linejoin="round"/>
+        <polyline points="16,20.3 27,26.6 38,20.3" fill="none" stroke="#F3EDE7" stroke-width="2.6" stroke-linejoin="round"/>
+        <line x1="27" y1="26.6" x2="27" y2="39.2" stroke="#F3EDE7" stroke-width="2.6"/>
+      </g>
+    </svg>
+    <h1>AnyStl</h1>
+    <p id="status" class="status">Starting local AnyStl server…</p>
+    <p id="detail" class="detail"></p>
+    <div id="error" class="error"></div>
+  </div>
+  <script>
+    window.__anystlStatus = function (msg, detail) {
+      var s = document.getElementById("status");
+      var d = document.getElementById("detail");
+      if (s) s.textContent = msg || "";
+      if (d) d.textContent = detail || "";
+    };
+    window.__anystlError = function (msg) {
+      var s = document.getElementById("status");
+      var e = document.getElementById("error");
+      if (s) s.textContent = "Could not start AnyStl";
+      if (e) {
+        e.textContent = msg || "Unknown startup error";
+        e.classList.add("visible");
+      }
+    };
+  </script>
+</body>
+</html>

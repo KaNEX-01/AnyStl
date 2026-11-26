@@ -7,7 +7,9 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "smoke": "node scripts/smoke.mjs"
+    "smoke": "node scripts/smoke.mjs",
+    "desktop:build": "cargo build --manifest-path desktop/Cargo.toml --release",
+    "desktop:install-linux": "bash desktop/install-linux.sh"
   },
   "dependencies": {
     "next": "16.2.4",

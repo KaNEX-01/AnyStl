@@ -1,0 +1,25 @@
+[package]
+name = "anystl-desktop"
+version = "0.1.0"
+description = "Native desktop app launcher for AnyStl"
+authors = ["KaNEX-01"]
+edition = "2021"
+
+[[bin]]
+name = "anystl"
+path = "src/main.rs"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+url = "2"
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+strip = true

@@ -25,6 +25,10 @@ yarn-error.log*
 # vercel
 .vercel
 
+# desktop launcher build output
+/desktop/target/
+/desktop/gen/
+
 # typescript
 *.tsbuildinfo
 
