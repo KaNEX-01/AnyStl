@@ -82,7 +82,10 @@ fn open_external(target: &str) {
     let Ok(parsed) = Url::parse(target) else {
         return;
     };
-    if !matches!(parsed.scheme(), "http" | "https" | "orcaslicer") {
+    if !matches!(
+        parsed.scheme(),
+        "http" | "https" | "orcaslicer" | "bambustudio" | "prusaslicer" | "elegooslicer"
+    ) {
         return;
     }
 
@@ -659,7 +662,140 @@ fn format_recent_logs(buf: &Arc<Mutex<VecDeque<String>>>) -> String {
     format!("\n\nServer log:\n{joined}")
 }
 
+struct BundledRuntime {
+    app_dir: PathBuf,
+    server_js: PathBuf,
+    node_exe: PathBuf,
+}
+
+fn find_bundled_runtime(app_handle: &tauri::AppHandle) -> Option<BundledRuntime> {
+    let mut roots: Vec<PathBuf> = Vec::new();
+    if let Ok(res_dir) = app_handle.path().resource_dir() {
+        roots.push(res_dir.join("resources"));
+        roots.push(res_dir);
+    }
+    if let Ok(exe) = env::current_exe() {
+        let resolved = exe.canonicalize().unwrap_or(exe);
+        if let Some(parent) = resolved.parent() {
+            roots.push(parent.join("resources"));
+            roots.push(parent.to_path_buf());
+        }
+    }
+
+    let node_name = if cfg!(windows) { "node.exe" } else { "node" };
+    for root in roots {
+        let app_dir = root.join("app");
+        let server_js = app_dir.join("server.js");
+        if !server_js.is_file() {
+            continue;
+        }
+        let bundled_node = root.join("node").join(node_name);
+        let node_exe = if bundled_node.is_file() {
+            bundled_node
+        } else {
+            PathBuf::from(node_name)
+        };
+        return Some(BundledRuntime {
+            app_dir,
+            server_js,
+            node_exe,
+        });
+    }
+    None
+}
+
+fn spawn_and_wait_server(
+    window: &WebviewWindow,
+    procs: &Arc<Mutex<ManagedProcesses>>,
+    allowed_port: &Arc<Mutex<Option<u16>>>,
+    port: u16,
+    mut cmd: Command,
+) {
+    *allowed_port.lock().unwrap() = Some(port);
+
+    set_splash_status(
+        window,
+        "Starting AnyStl server…",
+        &format!("http://127.0.0.1:{port}"),
+    );
+
+    let xvfb_display = if let Some((xvfb, disp)) = start_xvfb() {
+        procs.lock().unwrap().xvfb_child = Some(xvfb);
+        Some(disp)
+    } else {
+        None
+    };
+
+    if let Some(disp) = xvfb_display {
+        cmd.env("ANYSTL_XVFB_DISPLAY", disp);
+    }
+
+    #[cfg(unix)]
+    cmd.process_group(0);
+
+    #[cfg(windows)]
+    cmd.creation_flags(CREATE_NO_WINDOW);
+
+    let mut child = match cmd.spawn() {
+        Ok(c) => c,
+        Err(err) => {
+            set_splash_error(window, &format!("Failed to start AnyStl server: {err}"));
+            return;
+        }
+    };
+
+    let stderr_tail: Arc<Mutex<VecDeque<String>>> = Arc::new(Mutex::new(VecDeque::with_capacity(20)));
+    if let Some(stderr) = child.stderr.take() {
+        let tail_bg = Arc::clone(&stderr_tail);
+        thread::spawn(move || {
+            let reader = BufReader::new(stderr);
+            for line in reader.lines().map_while(Result::ok) {
+                let trimmed = line.trim();
+                if trimmed.is_empty() {
+                    continue;
+                }
+                let mut guard = tail_bg.lock().unwrap();
+                if guard.len() >= 15 {
+                    guard.pop_front();
+                }
+                guard.push_back(trimmed.to_string());
+            }
+        });
+    }
+
+    procs.lock().unwrap().next_child = Some(child);
+
+    let deadline = Instant::now() + Duration::from_secs(45);
+    while Instant::now() < deadline {
+        if probe_http(port) {
+            let url = format!("http://127.0.0.1:{port}/");
+            let _ = window.navigate(Url::parse(&url).unwrap());
+            return;
+        }
+        // Check if Next.js crashed early.
+        if let Some(ref mut c) = procs.lock().unwrap().next_child {
+            if let Ok(Some(status)) = c.try_wait() {
+                thread::sleep(Duration::from_millis(80));
+                let logs = format_recent_logs(&stderr_tail);
+                set_splash_error(
+                    window,
+                    &format!("AnyStl server exited unexpectedly (status: {status}).{logs}"),
+                );
+                return;
+            }
+        }
+        thread::sleep(Duration::from_millis(180));
+    }
+
+    let logs = format_recent_logs(&stderr_tail);
+    set_splash_error(
+        window,
+        &format!("Timed out waiting for the local AnyStl server to respond.{logs}"),
+    );
+}
+
 fn bootstrap_server(
+    app_handle: tauri::AppHandle,
     window: WebviewWindow,
     procs: Arc<Mutex<ManagedProcesses>>,
     allowed_port: Arc<Mutex<Option<u16>>>,
@@ -678,10 +814,34 @@ fn bootstrap_server(
         return;
     }
 
+    // Fast path for packaged end-user releases: bundled standalone server + Node.js runtime.
+    if let Some(bundled) = find_bundled_runtime(&app_handle) {
+        let port = match pick_free_port(preferred_port) {
+            Ok(p) => p,
+            Err(err) => {
+                set_splash_error(&window, &err);
+                return;
+            }
+        };
+        let mut cmd = Command::new(&bundled.node_exe);
+        cmd.arg(&bundled.server_js)
+            .current_dir(&bundled.app_dir)
+            .env("HOSTNAME", "127.0.0.1")
+            .env("PORT", port.to_string())
+            .env("NODE_ENV", "production")
+            .env("NEXT_TELEMETRY_DISABLED", "1")
+            .env("ANYSTL_DESKTOP", "1")
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::piped());
+        spawn_and_wait_server(&window, &procs, &allowed_port, port, cmd);
+        return;
+    }
+
     let Some(project_dir) = find_project_dir() else {
         set_splash_error(
             &window,
-            "Could not locate the AnyStl project folder.\nPlace this launcher inside the AnyStl folder or set ANYSTL_DIR.",
+            "Could not locate the AnyStl app bundle or project folder.\nReinstall AnyStl or set ANYSTL_DIR.",
         );
         return;
     };
@@ -748,20 +908,6 @@ fn bootstrap_server(
             return;
         }
     };
-    *allowed_port.lock().unwrap() = Some(port);
-
-    set_splash_status(
-        &window,
-        "Starting AnyStl server…",
-        &format!("http://127.0.0.1:{port}"),
-    );
-
-    let xvfb_display = if let Some((xvfb, disp)) = start_xvfb() {
-        procs.lock().unwrap().xvfb_child = Some(xvfb);
-        Some(disp)
-    } else {
-        None
-    };
 
     let mut cmd = Command::new(&tools.node_exe);
     cmd.arg(&next_bin)
@@ -774,72 +920,7 @@ fn bootstrap_server(
         .stderr(Stdio::piped());
     configure_tool_env(&mut cmd, &tools);
 
-    if let Some(disp) = xvfb_display {
-        cmd.env("ANYSTL_XVFB_DISPLAY", disp);
-    }
-
-    #[cfg(unix)]
-    cmd.process_group(0);
-
-    #[cfg(windows)]
-    cmd.creation_flags(CREATE_NO_WINDOW);
-
-    let mut child = match cmd.spawn() {
-        Ok(c) => c,
-        Err(err) => {
-            set_splash_error(&window, &format!("Failed to start Next.js server: {err}"));
-            return;
-        }
-    };
-
-    let stderr_tail: Arc<Mutex<VecDeque<String>>> = Arc::new(Mutex::new(VecDeque::with_capacity(20)));
-    if let Some(stderr) = child.stderr.take() {
-        let tail_bg = Arc::clone(&stderr_tail);
-        thread::spawn(move || {
-            let reader = BufReader::new(stderr);
-            for line in reader.lines().map_while(Result::ok) {
-                let trimmed = line.trim();
-                if trimmed.is_empty() {
-                    continue;
-                }
-                let mut guard = tail_bg.lock().unwrap();
-                if guard.len() >= 15 {
-                    guard.pop_front();
-                }
-                guard.push_back(trimmed.to_string());
-            }
-        });
-    }
-
-    procs.lock().unwrap().next_child = Some(child);
-
-    let deadline = Instant::now() + Duration::from_secs(45);
-    while Instant::now() < deadline {
-        if probe_http(port) {
-            let url = format!("http://127.0.0.1:{port}/");
-            let _ = window.navigate(Url::parse(&url).unwrap());
-            return;
-        }
-        // Check if Next.js crashed early.
-        if let Some(ref mut c) = procs.lock().unwrap().next_child {
-            if let Ok(Some(status)) = c.try_wait() {
-                thread::sleep(Duration::from_millis(80));
-                let logs = format_recent_logs(&stderr_tail);
-                set_splash_error(
-                    &window,
-                    &format!("AnyStl server exited unexpectedly (status: {status}).{logs}"),
-                );
-                return;
-            }
-        }
-        thread::sleep(Duration::from_millis(180));
-    }
-
-    let logs = format_recent_logs(&stderr_tail);
-    set_splash_error(
-        &window,
-        &format!("Timed out waiting for the local AnyStl server to respond.{logs}"),
-    );
+    spawn_and_wait_server(&window, &procs, &allowed_port, port, cmd);
 }
 
 fn main() {
@@ -887,7 +968,7 @@ fn main() {
                 // Brief pause so the splash HTML finishes initial paint.
                 thread::sleep(Duration::from_millis(120));
                 if let Some(win) = handle.get_webview_window("main") {
-                    bootstrap_server(win, procs_bg, port_bg);
+                    bootstrap_server(handle.clone(), win, procs_bg, port_bg);
                 }
             });
 

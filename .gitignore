@@ -28,6 +28,8 @@ yarn-error.log*
 # desktop launcher build output
 /desktop/target/
 /desktop/gen/
+/desktop/resources/app/
+/desktop/resources/node/
 
 # typescript
 *.tsbuildinfo

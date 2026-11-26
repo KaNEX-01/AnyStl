@@ -19,7 +19,7 @@ Search 22 sources at once (up to 24 with Cults3D and TraceParts configured) — 
   Give saved models a note and put them in collections (from the quick preview), export them as JSON (backup, can be imported again) or CSV, and use **Check links** to find models that were taken down.
   Choose **Find alternatives** on a removed model to search other sites for matching or similar titles. These are suggestions, not verified copies, and the original saved entry is not replaced.
   **Select** picks several saved models at once (shift-click for a range) to add them to a collection, take them out of one, export or remove them.
-- **Open in OrcaSlicer** — from the quick preview (or card button) of a Printables, Thingiverse, free MyMiniFactory, or Wikimedia Commons model, the model's STL / 3MF files go straight into [OrcaSlicer](https://github.com/SoftFever/OrcaSlicer) (several files arrive as one zip). Thingiverse takes ~20 s because of its download countdown. Sites that need an account to download (MakerWorld, Thangs, paid MyMiniFactory…) aren't supported.
+- **Send to Slicer (OrcaSlicer, Bambu Studio, PrusaSlicer, Elegoo Slicer, or Direct Download)** — on first launch, a setup wizard asks which slicer and library preset you prefer (editable anytime in **Settings**). From any card or preview on Printables, Thingiverse, free MyMiniFactory, or Wikimedia Commons, STL / 3MF files go straight into your chosen slicer or download directly (several files arrive as one zip). Thingiverse takes ~20 s because of its download countdown. Sites that need an account to download (MakerWorld, Thangs, paid MyMiniFactory…) aren't supported.
 - **OrcaSlicer tab plugin** — [`orcaslicer/anystl.py`](orcaslicer/anystl.py) adds an **AnyStl** tab inside OrcaSlicer 2.5.1+. Works **standalone with zero setup** (pure Python stdlib, searches 14+ libraries directly with no Node.js, `start.sh`, or desktop launcher required) and automatically upgrades to your local AnyStl server if one is running. See [`orcaslicer/README.md`](orcaslicer/README.md).
 - **Site health** — how fast each site answers, how often it fails or blocks, and the latest error. **Run check** runs a test search on every site and flags ones that answer with nothing or with results missing images or titles, which usually means the site changed its pages.
 
@@ -35,14 +35,17 @@ That's it. The first run installs everything and opens `http://localhost:3000` i
 
 To stop: close the AnyStl browser tab, close the terminal window, or press `Ctrl+C`.
 
-### Desktop app launcher (Linux & Windows)
+### Desktop app (ready-to-run installers for Windows & Linux)
 
-Prefer a dedicated window instead of a browser tab? AnyStl includes a lightweight Tauri v2 desktop launcher in [`desktop/`](desktop/):
+Normal users don't need Node.js, `npm`, or any build step. Download the ready-made app from [GitHub Releases](https://github.com/KaNEX-01/AnyStl/releases) (built automatically by [desktop-release.yml](.github/workflows/desktop-release.yml) with the Next.js standalone server and Node.js runtime bundled inside):
 
-- **Linux:** run `npm run desktop:install-linux` (requires Rust and `webkit2gtk-4.1`). This builds the native `anystl` binary, installs it to `~/.local/bin/anystl`, and adds an **AnyStl** entry to your application launcher.
-- **Windows:** place `anystl.exe` (built with `cargo build --manifest-path desktop/Cargo.toml --release` or downloaded from the [Desktop App Build](.github/workflows/desktop-release.yml) workflow) inside your AnyStl folder and launch it — on the first run it automatically downloads Node.js LTS (no admin rights needed), installs npm packages and Playwright Chromium, and builds AnyStl. You can also run `powershell -ExecutionPolicy Bypass -File desktop\install-windows.ps1` (add `-DesktopShortcut` for a desktop icon) to pre-install everything and add a Start Menu shortcut.
+- **Windows:** run `AnyStl_*_x64-setup.exe` (no admin rights required, installs to your user account with Start Menu & Desktop shortcuts) or unzip `AnyStl-windows-x64-portable.zip` and double-click `AnyStl.exe`.
+- **Linux:** run `AnyStl_*_amd64.AppImage` (`chmod +x` and launch), install the `.deb` package, or extract `AnyStl-linux-x64-portable.tar.gz`.
+- **Building from source:**
+  - Linux: `npm run desktop:install-linux` (requires Rust and `webkit2gtk-4.1`).
+  - Windows: `powershell -ExecutionPolicy Bypass -File desktop\install-windows.ps1` (add `-DesktopShortcut` for a desktop icon).
 
-Opening the desktop app installs any missing dependencies on first launch, starts the local Next.js server automatically with no terminal window, opens external model pages in your default browser, passes `orcaslicer://` links straight to OrcaSlicer, and shuts down the server when you close the window.
+Opening the desktop app starts the bundled AnyStl server in under a second with no terminal window, walks you through first-run slicer setup, opens external model pages in your default browser, passes slicer links (`orcaslicer://`, `bambustudio://`, `prusaslicer://`, `elegooslicer://`) straight to your chosen slicer, and shuts down cleanly when you close the window.
 
 ## How it works
 
@@ -105,5 +108,5 @@ To add a provider, put `<platform>.test.mjs` in `scripts/api-tests/`. For a live
 - [Next.js](https://nextjs.org) 16 (React 19)
 - [TypeScript](https://www.typescriptlang.org)
 - [Tailwind CSS](https://tailwindcss.com) 4
-- [Playwright](https://playwright.dev) with [playwright-extra](https://github.com/berstend/puppeteer-extra/tree/master/packages/playwright-extra) and [puppeteer-extra-plugin-stealth](https://github.com/berstend/puppeteer-extra/tree/master/packages/puppeteer-extra-plugin-stealth) for scraping
+- [Playwright](https://playwright.dev) for scraping browser-checked sites
 - [ESLint](https://eslint.org) 9
