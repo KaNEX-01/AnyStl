@@ -1,6 +1,6 @@
 [package]
 name = "anystl-desktop"
-version = "0.2.1"
+version = "0.2.2"
 description = "Native desktop app launcher for AnyStl"
 authors = ["KaNEX-01"]
 edition = "2021"
