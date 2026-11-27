@@ -34,7 +34,7 @@ function subscribeHistory(callback: () => void): () => void {
   };
 }
 
-export function getHistory(): string[] {
+function getHistory(): string[] {
   return readHistory();
 }
 

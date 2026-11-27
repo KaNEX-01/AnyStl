@@ -44,7 +44,7 @@ export function isFree(m: ModelResult): boolean {
 }
 
 /** "$9.99" → 9.99, "Free" → 0, "Full Plan" → null. */
-export function priceValue(m: ModelResult): number | null {
+function priceValue(m: ModelResult): number | null {
   if (isFree(m)) return 0;
   const match = m.price?.replace(/,/g, "").match(/(\d+(?:\.\d+)?)/);
   return match ? Number(match[1]) : null;
@@ -116,7 +116,7 @@ function titleKey(title: string): string | null {
  * `alternates`. Two same-titled models on one site are kept apart.
  */
 export function mergeDuplicates(results: ModelResult[]): ModelResult[] {
-  const groups = new Map<string, Array<{ primary: ModelResult; sites: Set<string> }>>();
+  const groups = new Map<string, Array<{ index: number; sites: Set<string> }>>();
   const out: ModelResult[] = [];
   const site = (m: ModelResult) => m.via?.toLowerCase() || m.platform;
 
@@ -126,17 +126,22 @@ export function mergeDuplicates(results: ModelResult[]): ModelResult[] {
       out.push(m);
       continue;
     }
-    const candidates = groups.get(key) || [];
-    const group = candidates.find((g) => !g.sites.has(site(m)) && !g.sites.has(m.platform));
+    const candidates = groups.get(key);
+    const group = candidates?.find((g) => !g.sites.has(site(m)) && !g.sites.has(m.platform));
     if (group) {
       group.sites.add(site(m)).add(m.platform);
-      group.primary.alternates!.push(m);
+      const current = out[group.index]!;
+      if (current.alternates) {
+        current.alternates.push(m);
+      } else {
+        out[group.index] = { ...current, alternates: [m] };
+      }
       continue;
     }
-    const primary = { ...m, alternates: [] };
-    candidates.push({ primary, sites: new Set([site(m), m.platform]) });
-    groups.set(key, candidates);
-    out.push(primary);
+    const entry = { index: out.length, sites: new Set([site(m), m.platform]) };
+    if (candidates) candidates.push(entry);
+    else groups.set(key, [entry]);
+    out.push(m);
   }
-  return out.map((m) => (m.alternates?.length ? m : { ...m, alternates: undefined }));
+  return out;
 }

@@ -8,10 +8,8 @@ import { ModelDetails, ModelResult } from "./types";
 const details = new Map<string, ModelDetails>();
 const inFlight = new Map<string, Promise<ModelDetails>>();
 const listeners = new Set<() => void>();
-let version = 0;
 
 function notify() {
-  version++;
   listeners.forEach((l) => l());
 }
 
@@ -20,7 +18,7 @@ function subscribe(listener: () => void) {
   return () => listeners.delete(listener);
 }
 
-export function fetchDetails(model: ModelResult): Promise<ModelDetails> {
+function fetchDetails(model: ModelResult): Promise<ModelDetails> {
   const known = details.get(model.url);
   if (known) return Promise.resolve(known);
   let pending = inFlight.get(model.url);
@@ -45,9 +43,14 @@ export function fetchDetails(model: ModelResult): Promise<ModelDetails> {
 
 /** Details for `model` once known; `load` starts fetching them. */
 export function useDetails(model: ModelResult | null, load = false): ModelDetails | undefined {
-  useSyncExternalStore(subscribe, () => version, () => 0);
+  const url = model?.url;
+  const entry = useSyncExternalStore(
+    subscribe,
+    () => (url ? details.get(url) : undefined),
+    () => undefined,
+  );
   useEffect(() => {
     if (model && load) fetchDetails(model);
   }, [model, load]);
-  return model ? details.get(model.url) : undefined;
+  return entry;
 }

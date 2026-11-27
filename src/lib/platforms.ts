@@ -32,7 +32,7 @@ export interface PlatformInfo {
   browser?: boolean;
 }
 
-export const cults3dSearchUrl = (q: string) => `https://cults3d.com/en/search?q=${encodeURIComponent(q)}`;
+const cults3dSearchUrl = (q: string) => `https://cults3d.com/en/search?q=${encodeURIComponent(q)}`;
 export const commonsStlQuery = (q: string) => `${q} filetype:3d`;
 export const OPTIONAL_SEARCH_PLATFORMS = ["cults3d", "traceparts"] as const;
 

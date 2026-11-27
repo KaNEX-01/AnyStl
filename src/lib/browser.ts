@@ -67,7 +67,7 @@ async function launchChromium(options?: {
   throw lastErr;
 }
 
-export async function getBrowser(): Promise<Browser> {
+async function getBrowser(): Promise<Browser> {
   if (browserInstance && browserInstance.isConnected()) {
     return browserInstance;
   }
@@ -77,7 +77,7 @@ export async function getBrowser(): Promise<Browser> {
 }
 
 /** Create a context that looks like a regular desktop Chrome. */
-export async function createStealthContext(browser: Browser): Promise<BrowserContext> {
+async function createStealthContext(browser: Browser): Promise<BrowserContext> {
   // Claim the real Chrome version so the user agent matches the engine.
   // Deliberately no faked navigator properties or timezone: bot checks look
   // for exactly those inconsistencies, and the real values pass fine.
@@ -233,15 +233,4 @@ export async function warmUp(urls: string[], context: BrowserContext): Promise<v
       }
     }),
   );
-}
-
-export async function closeBrowser() {
-  contextInstance = null;
-  headfulContext = null;
-  await headfulBrowser?.close().catch(() => {});
-  headfulBrowser = null;
-  if (browserInstance) {
-    await browserInstance.close();
-    browserInstance = null;
-  }
 }

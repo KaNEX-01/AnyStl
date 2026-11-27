@@ -97,7 +97,7 @@ interface RequestOptions {
  * (CloudFront, Cloudflare) reject Node's own TLS fingerprint outright while
  * letting curl through; httpRequest() falls back to this on its own.
  */
-export function curlRequest(
+function curlRequest(
   url: string,
   { method = "GET", headers = {}, body, timeoutMs = 20_000 }: RequestOptions = {},
 ): Promise<HttpResponse> {

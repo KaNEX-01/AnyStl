@@ -818,12 +818,12 @@ fn start_xvfb() -> Option<(Child, String)> {
 fn set_splash_status(window: &WebviewWindow, msg: &str, detail: &str) {
     let m = serde_json::to_string(msg).unwrap_or_else(|_| "\"\"".into());
     let d = serde_json::to_string(detail).unwrap_or_else(|_| "\"\"".into());
-    let _ = window.eval(&format!("window.__anystlStatus && window.__anystlStatus({m}, {d});"));
+    let _ = window.eval(format!("window.__anystlStatus && window.__anystlStatus({m}, {d});"));
 }
 
 fn set_splash_error(window: &WebviewWindow, msg: &str) {
     let m = serde_json::to_string(msg).unwrap_or_else(|_| "\"Startup failed\"".into());
-    let _ = window.eval(&format!("window.__anystlError && window.__anystlError({m});"));
+    let _ = window.eval(format!("window.__anystlError && window.__anystlError({m});"));
 }
 
 fn is_local_anystl_url(url: &Url, allowed_port: &Arc<Mutex<Option<u16>>>) -> bool {

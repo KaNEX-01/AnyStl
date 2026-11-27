@@ -69,3 +69,15 @@ export function useViewed() {
   const viewed = useSyncExternalStore(subscribe, readViewed, () => EMPTY);
   return { viewed, isViewed: (url: string) => cachedUrls.has(url) };
 }
+
+/** Individual cards only re-render when their own opened state changes. */
+export function useIsViewed(url: string): boolean {
+  return useSyncExternalStore(
+    subscribe,
+    () => {
+      readViewed();
+      return cachedUrls.has(url);
+    },
+    () => false,
+  );
+}

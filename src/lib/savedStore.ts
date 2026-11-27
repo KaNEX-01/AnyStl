@@ -1,24 +1,12 @@
 import { promises as fs } from "node:fs";
-import os from "node:os";
 import path from "node:path";
+import { appDataDir } from "./dataDir";
 import { ModelResult, Platform, SavedModel } from "./types";
 import { fetchJson, fetchText } from "./scrapers/common";
 
 // Saved models live in a JSON file in the user's data directory, so they
 // survive browser changes, cleared site data and reinstalls of AnyStl.
-function dataDir(): string {
-  if (process.env.ANYSTL_DATA_DIR) return process.env.ANYSTL_DATA_DIR;
-  const home = os.homedir();
-  if (process.platform === "win32") {
-    return path.join(process.env.APPDATA || path.join(home, "AppData", "Roaming"), "AnyStl");
-  }
-  if (process.platform === "darwin") {
-    return path.join(home, "Library", "Application Support", "AnyStl");
-  }
-  return path.join(process.env.XDG_DATA_HOME || path.join(home, ".local", "share"), "anystl");
-}
-
-const SAVED_FILE = path.join(dataDir(), "saved.json");
+const SAVED_FILE = path.join(appDataDir(), "saved.json");
 
 // Serialize writes so two quick clicks can't interleave read-modify-write.
 let queue: Promise<unknown> = Promise.resolve();

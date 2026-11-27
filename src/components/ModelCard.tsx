@@ -2,10 +2,10 @@
 
 import { useState, useSyncExternalStore } from "react";
 import { ModelResult, SavedModel } from "@/lib/types";
-import { toggleSaved, useSaved } from "@/lib/useSaved";
+import { toggleSaved, useIsSaved } from "@/lib/useSaved";
 import { useDetails } from "@/lib/useDetails";
 import { openPreview } from "@/lib/usePreview";
-import { recordViewed, useViewed } from "@/lib/useViewed";
+import { recordViewed, useIsViewed } from "@/lib/useViewed";
 import { PLATFORMS } from "@/lib/platforms";
 import { isEmbeddedOrca, resolveSlicerTarget, sendModelToOrca } from "@/lib/sendToOrca";
 import { SLICERS } from "@/lib/settings";
@@ -22,9 +22,8 @@ export function formatNumber(n: number | null): string {
 }
 
 export function SaveButton({ model, always, labeled }: { model: ModelResult; always?: boolean; labeled?: boolean }) {
-  const { isSaved } = useSaved();
   const [busy, setBusy] = useState(false);
-  const saved = isSaved(model.url);
+  const saved = useIsSaved(model.url);
 
   const onClick = async () => {
     setBusy(true);
@@ -114,7 +113,7 @@ export function ModelCard({ model, selected, onSelect, onFindAlternatives }: Car
   const filament = PLATFORMS[model.platform].color;
   const { license, formats } = useBadges(model);
   const saved = model as SavedModel;
-  const { isViewed } = useViewed();
+  const viewed = useIsViewed(model.url);
   const { settings } = useSettings();
   const slicerInfo = SLICERS[settings.slicer];
   const isDownloadMode = settings.slicer === "download";
@@ -230,7 +229,7 @@ export function ModelCard({ model, selected, onSelect, onFindAlternatives }: Car
             {model.isAI && (
               <span className="rounded-md bg-spool-bg/85 px-2 py-0.5 font-mono text-[11px] font-medium text-[#D8B4FE]">AI</span>
             )}
-            {isViewed(model.url) && (
+            {viewed && (
               <span className="rounded-md bg-spool-bg/85 px-2 py-0.5 font-mono text-[11px] font-medium text-spool-muted" title="You opened this on its site">
                 Opened
               </span>

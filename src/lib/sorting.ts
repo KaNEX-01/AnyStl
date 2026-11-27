@@ -10,7 +10,14 @@ import { ModelResult, Platform, SortOption } from "./types";
  */
 function sitePercentiles(results: ModelResult[]): Map<ModelResult, number> {
   const bySite = new Map<Platform, ModelResult[]>();
-  for (const r of results) bySite.set(r.platform, [...(bySite.get(r.platform) || []), r]);
+  for (const r of results) {
+    let list = bySite.get(r.platform);
+    if (!list) {
+      list = [];
+      bySite.set(r.platform, list);
+    }
+    list.push(r);
+  }
 
   const pct = new Map<ModelResult, number>();
   for (const list of bySite.values()) {

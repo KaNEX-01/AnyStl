@@ -100,3 +100,16 @@ export function useSaved() {
     isSaved: (url: string) => savedUrls.has(url),
   };
 }
+
+/** Individual cards only re-render when their own saved state changes. */
+export function useIsSaved(url: string): boolean {
+  useEffect(() => {
+    load();
+  }, []);
+
+  return useSyncExternalStore(
+    subscribe,
+    () => savedUrls.has(url),
+    () => false,
+  );
+}

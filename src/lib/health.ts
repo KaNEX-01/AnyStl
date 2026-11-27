@@ -10,7 +10,7 @@ const history = new Map<Platform, SiteCheck[]>();
  * Signs that a scraper is reading the wrong part of the page: results come
  * back, but without the fields every result of that site should have.
  */
-export function qualityWarnings(results: ModelResult[]): string[] {
+function qualityWarnings(results: ModelResult[]): string[] {
   if (!results.length) return [];
   const share = (pred: (r: ModelResult) => boolean) => results.filter(pred).length / results.length;
   const warnings: string[] = [];

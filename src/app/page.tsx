@@ -60,8 +60,9 @@ export default function Home() {
 
   const allResults = useMemo(() => pages.flat(), [pages]);
   const shownResults = useMemo(() => {
+    const enabledSet = new Set(enabled);
     const visible = (list: ModelResult[]) =>
-      applyFilters(list.filter((r) => enabled.includes(r.platform)), filters, excludes);
+      applyFilters(list.filter((r) => enabledSet.has(r.platform)), filters, excludes);
     const sorted =
       sortBy === "fair"
         ? pages.flatMap((p) => sortResults(visible(p), "fair"))
