@@ -53,27 +53,38 @@ function clearHistory() {
 
 interface Props {
   onSelect: (query: string) => void;
+  centered?: boolean;
 }
 
 /** Recent searches as one-click chips. */
-export function SearchHistory({ onSelect }: Props) {
+export function SearchHistory({ onSelect, centered }: Props) {
   const history = useSyncExternalStore(subscribeHistory, readHistory, () => EMPTY);
 
   if (history.length === 0) return null;
 
   return (
-    <div className="flex flex-wrap items-center gap-2">
-      <span className="font-mono text-xs text-spool-dim">Recent</span>
-      {history.slice(0, 8).map((q) => (
+    <div className={`flex flex-wrap items-center gap-1.5 ${centered ? "justify-center" : ""}`}>
+      <span className="mr-1 inline-flex items-center gap-1 font-mono text-[11px] text-spool-dim">
+        <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M12 8v4l3 2m6-2a9 9 0 11-18 0 9 9 0 0118 0z" />
+        </svg>
+        Recent
+      </span>
+      {history.slice(0, 6).map((q) => (
         <button
           key={q}
+          type="button"
           onClick={() => onSelect(q)}
-          className="rounded-full bg-spool-chip px-3 py-1 text-sm text-spool-muted transition-colors hover:bg-spool-line hover:text-spool-text"
+          className="rounded-full bg-spool-chip/80 px-3 py-1 text-xs text-spool-muted transition-colors hover:bg-spool-line hover:text-spool-text"
         >
           {q}
         </button>
       ))}
-      <button onClick={() => clearHistory()} className="px-1 text-xs text-spool-dim hover:text-spool-accent-soft">
+      <button
+        type="button"
+        onClick={() => clearHistory()}
+        className="px-1.5 text-[11px] text-spool-dim transition-colors hover:text-spool-accent-soft"
+      >
         Clear
       </button>
     </div>

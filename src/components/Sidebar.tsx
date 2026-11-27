@@ -42,45 +42,74 @@ const TABS = [
   { href: "/settings", label: "Settings", icon: "M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065zM15 12a3 3 0 11-6 0 3 3 0 016 0z" },
 ];
 
-function Logo({ compact }: { compact?: boolean }) {
+function Logo({ compact, onReset }: { compact?: boolean; onReset?: () => void }) {
   return (
-    <Link href="/" className="flex items-center gap-2.5 hover:opacity-90" aria-label="AnyStl home">
-      <LogoMark size={compact ? 32 : 38} />
-      {!compact && <span className="text-[22px] font-bold tracking-tight text-spool-text">AnyStl</span>}
+    <Link
+      href="/"
+      onClick={onReset}
+      className="flex items-center gap-2.5 transition-opacity hover:opacity-90"
+      aria-label="AnyStl home"
+    >
+      <LogoMark size={compact ? 28 : 30} />
+      {!compact && <span className="text-[19px] font-bold tracking-tight text-spool-text">AnyStl</span>}
     </Link>
   );
 }
 
-function NavLinks({ vertical, compact }: { vertical?: boolean; compact?: boolean }) {
+function NavLinks({
+  vertical,
+  compact,
+  onResetHome,
+}: {
+  vertical?: boolean;
+  compact?: boolean;
+  onResetHome?: () => void;
+}) {
   const pathname = usePathname();
   const { saved, loaded } = useSaved();
   const { viewed } = useViewed();
   return (
-    <nav className={vertical ? "flex flex-col gap-1" : "flex gap-1"}>
+    <nav className={vertical ? "flex flex-col gap-0.5" : "flex gap-1 overflow-x-auto"}>
       {TABS.map(({ href, label, icon }) => {
         const active = pathname === href;
         return (
           <Link
             key={href}
             href={href}
+            onClick={href === "/" && active ? onResetHome : undefined}
             aria-current={active ? "page" : undefined}
             title={compact ? label : undefined}
-            className={`flex items-center ${compact ? "justify-center px-2" : "justify-between gap-3 px-3.5"} rounded-xl py-2.5 text-sm font-medium transition-colors ${
-              active ? "bg-spool-line-soft text-spool-text" : "text-spool-muted hover:bg-spool-chip hover:text-spool-text"
+            className={`flex shrink-0 items-center ${
+              compact ? "justify-center px-2 py-2.5" : "justify-between gap-2.5 px-3 py-2"
+            } rounded-xl text-[13.5px] font-medium transition-colors ${
+              active
+                ? "bg-spool-line-soft/90 text-spool-text"
+                : "text-spool-muted hover:bg-spool-chip/70 hover:text-spool-text"
             }`}
           >
             {compact ? (
-              <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+              <svg className="h-[18px] w-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d={icon} />
               </svg>
             ) : (
               <>
-                {label}
+                <span className="flex items-center gap-2.5">
+                  <svg
+                    className={`h-4 w-4 shrink-0 ${active ? "text-spool-accent" : "text-spool-dim"}`}
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                    aria-hidden="true"
+                  >
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d={icon} />
+                  </svg>
+                  {label}
+                </span>
                 {href === "/saved" && loaded && saved.length > 0 && (
-                  <span className="font-mono text-xs text-spool-accent-soft">{saved.length}</span>
+                  <span className="font-mono text-[11px] text-spool-accent-soft">{saved.length}</span>
                 )}
                 {href === "/opened" && viewed.length > 0 && (
-                  <span className="font-mono text-xs text-spool-muted">{viewed.length}</span>
+                  <span className="font-mono text-[11px] text-spool-dim">{viewed.length}</span>
                 )}
               </>
             )}
@@ -108,6 +137,12 @@ export function Sidebar() {
     collapseListeners.forEach((l) => l());
   };
 
+  const resetHome = () => {
+    if (pathname === "/") {
+      window.dispatchEvent(new Event("anystl:home"));
+    }
+  };
+
   // The filter applies to searching and to Featured; Saved has its own chips.
   const showFilter = pathname === "/" || pathname === "/featured";
   const platforms = pathname === "/featured" ? available.filter((p) => PLATFORMS[p].featuredLabel) : available;
@@ -117,18 +152,18 @@ export function Sidebar() {
   return (
     <>
       <aside
-        className={`sticky top-0 hidden h-screen shrink-0 flex-col gap-6 overflow-y-auto border-r border-spool-line-soft/60 bg-spool-side transition-[width] duration-200 lg:flex ${
-          collapsed ? "w-[68px] items-center px-2.5 py-6" : "w-[300px] px-5 py-7"
+        className={`sticky top-0 hidden h-screen shrink-0 flex-col gap-5 overflow-y-auto border-r border-spool-line-soft/50 bg-spool-side/85 transition-[width] duration-200 lg:flex ${
+          collapsed ? "w-[64px] items-center px-2 py-5" : "w-[264px] px-4 py-5"
         }`}
       >
-        <div className={`flex w-full items-center ${collapsed ? "flex-col gap-3" : "justify-between gap-2"}`}>
-          <Logo compact={collapsed} />
+        <div className={`flex w-full items-center ${collapsed ? "flex-col gap-3" : "justify-between gap-2 px-1"}`}>
+          <Logo compact={collapsed} onReset={resetHome} />
           <button
             type="button"
             onClick={toggleCollapsed}
             aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-            title={collapsed ? "Expand sidebar" : "Collapse sidebar for a wider grid"}
-            className="flex h-8 w-8 items-center justify-center rounded-lg text-spool-dim transition-colors hover:bg-spool-chip hover:text-spool-text"
+            title={collapsed ? "Expand sidebar" : "Collapse sidebar for a wider view"}
+            className="flex h-7 w-7 items-center justify-center rounded-lg text-spool-dim transition-colors hover:bg-spool-chip hover:text-spool-text"
           >
             <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
               <path
@@ -140,21 +175,24 @@ export function Sidebar() {
             </svg>
           </button>
         </div>
+
         <div className="w-full">
-          <NavLinks vertical compact={collapsed} />
+          <NavLinks vertical compact={collapsed} onResetHome={resetHome} />
         </div>
+
         {showFilter && !collapsed && (
           <>
-            <div className="h-px bg-spool-line-soft" />
+            <div className="h-px bg-spool-line-soft/60" />
             {filter}
           </>
         )}
+
         {showFilter && collapsed && (
           <button
             type="button"
             onClick={toggleCollapsed}
             title={`Show sites (${enabledCount}/${platforms.length} active)`}
-            className="mt-auto flex flex-col items-center gap-0.5 rounded-xl bg-spool-chip px-2 py-2 font-mono text-[10px] text-spool-muted hover:text-spool-text"
+            className="mt-auto flex flex-col items-center gap-0.5 rounded-xl border border-spool-line-soft/70 bg-spool-chip/70 px-2 py-2 font-mono text-[10px] text-spool-muted transition-colors hover:border-spool-line hover:text-spool-text"
           >
             <span className="text-spool-accent-soft">{enabledCount}</span>
             <span>/{platforms.length}</span>
@@ -162,26 +200,31 @@ export function Sidebar() {
         )}
       </aside>
 
-      <header className="sticky top-0 z-40 border-b border-spool-line-soft bg-spool-side/95 backdrop-blur-md lg:hidden">
-        <div className="flex items-center gap-3 px-4 py-3">
-          <Logo />
+      <header className="sticky top-0 z-40 border-b border-spool-line-soft/70 bg-spool-side/95 backdrop-blur-md lg:hidden">
+        <div className="flex items-center gap-3 px-4 py-2.5">
+          <Logo onReset={resetHome} />
           <span className="flex-grow" />
           {showFilter && (
             <button
+              type="button"
               onClick={() => setFilterOpen((v) => !v)}
               aria-expanded={filterOpen}
-              className={`rounded-xl px-3 py-2 text-sm font-medium ${
-                filterOpen ? "bg-spool-accent text-spool-side" : "bg-spool-chip text-spool-text"
+              className={`rounded-full px-3 py-1.5 text-xs font-medium transition-colors ${
+                filterOpen
+                  ? "bg-spool-accent text-spool-side"
+                  : "border border-spool-line-soft bg-spool-chip text-spool-text"
               }`}
             >
-              Sites <span className="font-mono text-xs opacity-80">{enabledCount}/{platforms.length}</span>
+              Sites <span className="font-mono text-[11px] opacity-80">{enabledCount}/{platforms.length}</span>
             </button>
           )}
         </div>
         <div className="px-3 pb-2">
-          <NavLinks />
+          <NavLinks onResetHome={resetHome} />
         </div>
-        {showFilter && filterOpen && <div className="max-h-[70vh] overflow-y-auto border-t border-spool-line-soft px-4 py-4">{filter}</div>}
+        {showFilter && filterOpen && (
+          <div className="max-h-[70vh] overflow-y-auto border-t border-spool-line-soft/70 px-4 py-4">{filter}</div>
+        )}
       </header>
     </>
   );

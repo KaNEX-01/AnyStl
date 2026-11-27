@@ -67,7 +67,7 @@ export default function SettingsPage() {
         <button
           type="button"
           onClick={() => setWizardOpen(true)}
-          className="inline-flex h-9 items-center gap-2 rounded-[10px] border border-spool-line bg-spool-field px-3.5 text-sm text-spool-text transition-colors hover:border-spool-accent"
+          className="inline-flex h-9 items-center gap-2 rounded-full border border-spool-line-soft bg-spool-card/80 px-4 text-xs font-medium text-spool-text transition-colors hover:border-spool-accent/70"
         >
           Run setup wizard
         </button>

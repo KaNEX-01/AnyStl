@@ -9,6 +9,7 @@ import { ColumnSlider } from "@/components/ColumnSlider";
 import { ExternalSearchLinks } from "@/components/ExternalSearchLinks";
 import { FilterBar } from "@/components/FilterBar";
 import { LogoLoader } from "@/components/LogoLoader";
+import { LogoMark } from "@/components/LogoMark";
 import { sortResults } from "@/lib/sorting";
 import { applyFilters, DEFAULT_FILTERS, mergeDuplicates, parseQuery, ResultFilters } from "@/lib/filters";
 import { streamSearch } from "@/lib/searchStream";
@@ -156,6 +157,26 @@ export default function Home() {
     }
   };
 
+  const handleResetHome = () => {
+    abortRef.current?.abort();
+    queryRef.current = "";
+    searchedSourcesRef.current = [];
+    seenUrlsRef.current = new Set();
+    setQuery("");
+    setSearched(false);
+    setPages([]);
+    setStates({});
+    setErrors({});
+    setActiveSources([]);
+    setError(null);
+    setMoreError(null);
+    setIsLoading(false);
+    setLoadingMore(false);
+    if (window.location.search) {
+      window.history.pushState(null, "", "/");
+    }
+  };
+
   const handleSearch = async (raw: string, sources: Platform[] = enabled, push = true) => {
     const { search } = parseQuery(raw);
     if (!search) {
@@ -237,12 +258,15 @@ export default function Home() {
         setIsLoading(false);
       }
     };
+    const onReset = () => handleResetHome();
     // After hydration settles, so the saved site selection is already read.
     const first = setTimeout(restore, 0);
     window.addEventListener("popstate", restore);
+    window.addEventListener("anystl:home", onReset);
     return () => {
       clearTimeout(first);
       window.removeEventListener("popstate", restore);
+      window.removeEventListener("anystl:home", onReset);
     };
   }, []);
 
@@ -300,159 +324,186 @@ export default function Home() {
 
   const hasResults = shownResults.length > 0;
   const hiddenByFilters = allResults.length > 0 && !hasResults;
+  const isHomeView = !searched && !isLoading;
 
   return (
-    <main className="flex flex-1 flex-col gap-5 px-4 pb-6 pt-4 sm:px-6 lg:px-10 lg:pb-7 lg:pt-5">
-      <div
-        className={`relative z-30 -mx-4 flex flex-col gap-3 px-4 py-2 sm:-mx-6 sm:px-6 lg:-mx-10 lg:px-10 ${
-          searched || allResults.length > 0
-            ? "sticky top-0 border-b border-spool-line-soft/75 bg-spool-bg/95 backdrop-blur-md"
-            : ""
-        }`}
-      >
-        <SearchBar onSearch={(q) => handleSearch(q)} isLoading={isLoading} initialQuery={query} />
-
-        {allResults.length > 0 && (
-          <div className="flex flex-col gap-2.5 pb-1">
-            <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
-              <p className="text-sm text-spool-muted">
-                <span className="font-semibold text-spool-text">{shownResults.length} models</span>
-                {isLoading ? (
-                  <span className="ml-2 inline-flex items-center gap-2 font-mono text-xs">
-                    <LogoLoader size={15} />
-                    {answeredCount}/{totalSources} sites
-                  </span>
-                ) : (
-                  <> · {searchTime.toFixed(1)} s</>
-                )}
-              </p>
-              <span className="flex-grow" />
-              <SortDropdown value={sortBy} onChange={setSortBy} />
-              <div className="hidden lg:flex">
-                <ColumnSlider value={columns} onChange={setColumns} />
-              </div>
+    <main className="flex flex-1 flex-col px-4 pb-6 pt-4 sm:px-6 lg:px-10 lg:pb-7 lg:pt-5">
+      {isHomeView ? (
+        /* Centered search-engine landing screen */
+        <section className="mx-auto my-auto flex w-full max-w-[780px] flex-col items-center gap-6 py-10 text-center sm:py-16">
+          <div className="flex flex-col items-center gap-2.5">
+            <div className="flex items-center gap-3.5">
+              <LogoMark size={48} hole="#171412" />
+              <h1 className="text-4xl font-bold tracking-tight text-spool-text sm:text-5xl">AnyStl</h1>
             </div>
-            <FilterBar value={filters} onChange={setFilters} excludes={excludes} />
+            <p className="text-sm text-spool-muted">
+              Search across <span className="font-medium text-spool-text">{enabled.length}</span> of{" "}
+              {available.length} 3D model libraries
+            </p>
           </div>
-        )}
 
-        {isLoading && totalSources > 0 && (
-          <div className="absolute inset-x-0 bottom-0 h-[2px] overflow-hidden bg-spool-line-soft/50" aria-hidden="true">
-            <div
-              className="h-full bg-spool-accent transition-[width] duration-300"
-              style={{ width: `${Math.max(8, progressPct)}%` }}
+          <div className="w-full max-w-[680px]">
+            <SearchBar
+              variant="hero"
+              onSearch={(q) => handleSearch(q)}
+              isLoading={isLoading}
+              initialQuery={query}
             />
           </div>
-        )}
-      </div>
 
-      {/* Before the first search */}
-      {!searched && !isLoading && (
-        <section className="flex flex-col gap-6 pt-6 lg:pt-12">
-          <div className="max-w-2xl">
-            <h1 className="text-4xl font-bold tracking-tight text-spool-text sm:text-5xl">What are you printing today?</h1>
-            <p className="mt-3 text-[15px] leading-relaxed text-spool-muted">
-              One search across {available.length} model sites: printing communities, printer-brand libraries, CAD
-              collections and Blender / 3D asset stores. Pick which ones to load from the spools on the left. Add
-              <span className="font-mono text-spool-text"> -word </span>to leave out results containing a word.
-            </p>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="font-mono text-xs text-spool-dim">Try</span>
-            {SUGGESTIONS.map((s) => (
-              <button
-                key={s}
-                onClick={() => handleSearch(s)}
-                className="rounded-full border border-spool-line px-3.5 py-1.5 text-sm text-spool-text transition-colors hover:border-spool-accent hover:text-spool-accent-soft"
-              >
-                {s}
-              </button>
-            ))}
-          </div>
-          <SearchHistory onSelect={(q) => handleSearch(q)} />
-          <FilterBar value={filters} onChange={setFilters} excludes={excludes} />
-        </section>
-      )}
-
-      {/* Nothing has arrived yet */}
-      {isLoading && allResults.length === 0 && (
-        <div role="status" className="flex flex-col items-center justify-center gap-5 py-24 text-spool-muted">
-          <LogoLoader size={88} />
-          <p className="text-sm">
-            Searching {enabled.length === available.length ? "all" : enabled.length} sites...
-            {answeredCount > 0 && <span className="font-mono text-xs text-spool-dim"> {answeredCount} answered</span>}
-          </p>
-        </div>
-      )}
-
-      {error && !isLoading && allResults.length > 0 && <p className="py-4 text-center text-sm text-[#FCA5A5]">{error}</p>}
-
-      {!isLoading && searched && allResults.length === 0 && (
-        <div className="flex flex-col items-center gap-4 py-20 text-center">
-          <FilterBar value={filters} onChange={setFilters} excludes={excludes} />
-          {error ? <p className="text-sm text-[#FCA5A5]">{error}</p>
-            : <p className="text-sm text-spool-muted">No results found. Try a different search term.</p>}
-          <ExternalSearchLinks query={parseQuery(query).search} failed={failedSources} searched={searchedPlatforms} />
-        </div>
-      )}
-
-      {allResults.length > 0 && (
-        <>
-          {!isLoading && <ExternalSearchLinks query={parseQuery(query).search} failed={failedSources} searched={searchedPlatforms} />}
-
-          {hiddenByFilters && (
-            <p className="py-12 text-center text-sm text-spool-muted">
-              All {allResults.length} results are hidden by the filters above.
-            </p>
-          )}
-
-          {hasResults && <ModelGrid models={embedded ? shownResults.slice(0, visibleLimit) : shownResults} columns={columns} />}
-
-          <div ref={sentinelRef} className="flex flex-col items-center gap-2 pt-4">
-            {loadingMore ? (
-              <span className="inline-flex items-center gap-2 text-sm text-spool-muted">
-                <LogoLoader size={20} /> Loading more…
-              </span>
-            ) : moreError ? (
-              <>
-                <p className="text-xs text-[#FCA5A5]">{moreError}</p>
+          <div className="flex flex-col items-center gap-3">
+            <div className="flex flex-wrap items-center justify-center gap-2">
+              {SUGGESTIONS.map((s) => (
                 <button
-                  onClick={handleLoadMore}
-                  className="inline-flex h-11 items-center rounded-[14px] border border-spool-line bg-spool-field px-6 text-sm font-semibold text-spool-text hover:border-spool-accent"
+                  key={s}
+                  type="button"
+                  onClick={() => handleSearch(s)}
+                  className="rounded-full border border-spool-line-soft bg-spool-card/65 px-3.5 py-1.5 text-xs font-medium text-spool-muted transition-colors hover:border-spool-accent/70 hover:text-spool-text"
                 >
-                  Try again
+                  {s}
                 </button>
-              </>
-            ) : embedded && !isLoading && (shownResults.length > visibleLimit || canLoadMore) ? (
-              <button
-                type="button"
-                onClick={() => shownResults.length > visibleLimit
-                  ? setVisibleLimit((limit) => limit + EMBEDDED_BATCH)
-                  : handleLoadMore()}
-                className="inline-flex h-11 items-center rounded-[14px] border border-spool-line bg-spool-field px-6 text-sm font-semibold text-spool-text hover:border-spool-accent"
-              >
-                {shownResults.length > visibleLimit ? "Show more models" : "Load more"}
-              </button>
-            ) : !embedded && canLoadMore && manualLoadMore ? (
-              <button
-                onClick={handleLoadMore}
-                className="inline-flex h-11 items-center rounded-[14px] border border-spool-line bg-spool-field px-6 text-sm font-semibold text-spool-text hover:border-spool-accent"
-              >
-                Search more results
-              </button>
-            ) : (
-              !isLoading && !canLoadMore && <p className="font-mono text-xs text-spool-dim">No more results from any site.</p>
+              ))}
+            </div>
+
+            <SearchHistory onSelect={(q) => handleSearch(q)} centered />
+          </div>
+
+          <div className="flex w-full flex-col items-center gap-3 border-t border-spool-line-soft/50 pt-5">
+            <FilterBar value={filters} onChange={setFilters} excludes={excludes} centered />
+            <p className="text-[11px] text-spool-dim">
+              Tip: add <code className="rounded bg-spool-card px-1.5 py-0.5 font-mono text-[11px] text-spool-muted">-word</code> to exclude terms from results
+            </p>
+          </div>
+        </section>
+      ) : (
+        /* Search results mode */
+        <div className="flex flex-1 flex-col gap-5">
+          <div className="sticky top-0 z-30 -mx-4 flex flex-col gap-2.5 border-b border-spool-line-soft/70 bg-spool-bg/95 px-4 pb-3 pt-2 backdrop-blur-md sm:-mx-6 sm:px-6 lg:-mx-10 lg:px-10">
+            <div className="flex flex-wrap items-center gap-3">
+              <div className="min-w-0 flex-1 max-w-2xl">
+                <SearchBar
+                  variant="compact"
+                  onSearch={(q) => handleSearch(q)}
+                  isLoading={isLoading}
+                  initialQuery={query}
+                />
+              </div>
+              {allResults.length > 0 && (
+                <div className="flex flex-wrap items-center gap-x-4 gap-y-2 lg:ml-auto">
+                  <p className="text-xs text-spool-muted">
+                    <span className="font-semibold text-spool-text">{shownResults.length}</span> models
+                    {isLoading ? (
+                      <span className="ml-2 inline-flex items-center gap-1.5 font-mono text-[11px]">
+                        <LogoLoader size={13} />
+                        {answeredCount}/{totalSources}
+                      </span>
+                    ) : (
+                      <span className="text-spool-dim"> · {searchTime.toFixed(1)}s</span>
+                    )}
+                  </p>
+                  <SortDropdown value={sortBy} onChange={setSortBy} />
+                  <div className="hidden lg:flex">
+                    <ColumnSlider value={columns} onChange={setColumns} />
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {allResults.length > 0 && (
+              <FilterBar value={filters} onChange={setFilters} excludes={excludes} />
+            )}
+
+            {isLoading && totalSources > 0 && (
+              <div className="absolute inset-x-0 bottom-0 h-[2px] overflow-hidden bg-spool-line-soft/45" aria-hidden="true">
+                <div
+                  className="h-full bg-spool-accent transition-[width] duration-300"
+                  style={{ width: `${Math.max(8, progressPct)}%` }}
+                />
+              </div>
             )}
           </div>
-        </>
+
+          {/* Nothing has arrived yet */}
+          {isLoading && allResults.length === 0 && (
+            <div role="status" className="my-auto flex flex-col items-center justify-center gap-5 py-24 text-spool-muted">
+              <LogoLoader size={80} />
+              <p className="text-sm">
+                Searching {enabled.length === available.length ? "all" : enabled.length} sites…
+                {answeredCount > 0 && <span className="font-mono text-xs text-spool-dim"> {answeredCount}/{totalSources} answered</span>}
+              </p>
+            </div>
+          )}
+
+          {error && !isLoading && allResults.length > 0 && <p className="py-4 text-center text-sm text-[#FCA5A5]">{error}</p>}
+
+          {!isLoading && searched && allResults.length === 0 && (
+            <div className="my-auto flex flex-col items-center gap-4 py-20 text-center">
+              <FilterBar value={filters} onChange={setFilters} excludes={excludes} centered />
+              {error ? <p className="text-sm text-[#FCA5A5]">{error}</p>
+                : <p className="text-sm text-spool-muted">No results found. Try a different search term.</p>}
+              <ExternalSearchLinks query={parseQuery(query).search} failed={failedSources} searched={searchedPlatforms} />
+            </div>
+          )}
+
+          {allResults.length > 0 && (
+            <>
+              {!isLoading && <ExternalSearchLinks query={parseQuery(query).search} failed={failedSources} searched={searchedPlatforms} />}
+
+              {hiddenByFilters && (
+                <p className="py-12 text-center text-sm text-spool-muted">
+                  All {allResults.length} results are hidden by the filters above.
+                </p>
+              )}
+
+              {hasResults && <ModelGrid models={embedded ? shownResults.slice(0, visibleLimit) : shownResults} columns={columns} />}
+
+              <div ref={sentinelRef} className="flex flex-col items-center gap-2 pt-4">
+                {loadingMore ? (
+                  <span className="inline-flex items-center gap-2 text-sm text-spool-muted">
+                    <LogoLoader size={20} /> Loading more…
+                  </span>
+                ) : moreError ? (
+                  <>
+                    <p className="text-xs text-[#FCA5A5]">{moreError}</p>
+                    <button
+                      onClick={handleLoadMore}
+                      className="inline-flex h-10 items-center rounded-full border border-spool-line bg-spool-field px-5 text-sm font-semibold text-spool-text hover:border-spool-accent"
+                    >
+                      Try again
+                    </button>
+                  </>
+                ) : embedded && !isLoading && (shownResults.length > visibleLimit || canLoadMore) ? (
+                  <button
+                    type="button"
+                    onClick={() => shownResults.length > visibleLimit
+                      ? setVisibleLimit((limit) => limit + EMBEDDED_BATCH)
+                      : handleLoadMore()}
+                    className="inline-flex h-10 items-center rounded-full border border-spool-line bg-spool-field px-5 text-sm font-semibold text-spool-text hover:border-spool-accent"
+                  >
+                    {shownResults.length > visibleLimit ? "Show more models" : "Load more"}
+                  </button>
+                ) : !embedded && canLoadMore && manualLoadMore ? (
+                  <button
+                    onClick={handleLoadMore}
+                    className="inline-flex h-10 items-center rounded-full border border-spool-line bg-spool-field px-5 text-sm font-semibold text-spool-text hover:border-spool-accent"
+                  >
+                    Search more results
+                  </button>
+                ) : (
+                  !isLoading && !canLoadMore && <p className="font-mono text-xs text-spool-dim">No more results from any site.</p>
+                )}
+              </div>
+            </>
+          )}
+        </div>
       )}
 
-      <footer className="mt-auto pt-10 text-center font-mono text-[11px] text-spool-dim">
+      <footer className="mt-auto pt-8 text-center font-mono text-[11px] text-spool-dim/80">
         AnyStl · 3D model meta-search · not affiliated with any of the searched sites
         {available.includes("traceparts") && (
           <>
             {" · CAD catalog "}
-            <a href="https://www.traceparts.com/" target="_blank" rel="noopener noreferrer" className="underline">
+            <a href="https://www.traceparts.com/" target="_blank" rel="noopener noreferrer" className="underline hover:text-spool-muted">
               powered by TraceParts
             </a>
           </>

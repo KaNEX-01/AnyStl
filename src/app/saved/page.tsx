@@ -136,7 +136,7 @@ function SelectionBar({
 }
 
 const toolButton =
-  "inline-flex h-9 items-center gap-2 rounded-[10px] border border-spool-line bg-spool-field px-3 text-sm text-spool-text transition-colors hover:border-spool-accent disabled:opacity-50";
+  "inline-flex h-9 items-center gap-2 rounded-full border border-spool-line-soft bg-spool-card/80 px-3.5 text-xs font-medium text-spool-text transition-colors hover:border-spool-accent/70 disabled:opacity-50";
 
 export default function SavedPage() {
   const { saved, loaded } = useSaved();
@@ -370,7 +370,7 @@ export default function SavedPage() {
               value={text}
               onChange={(e) => setText(e.target.value)}
               placeholder="Filter by title or note"
-              className="h-9 w-64 max-w-full rounded-[10px] border border-spool-line bg-spool-field px-3 text-sm text-spool-text placeholder:text-spool-dim focus:border-spool-accent/70 focus:outline-none"
+              className="h-9 w-64 max-w-full rounded-full border border-spool-line-soft bg-spool-field/90 px-4 text-sm text-spool-text placeholder:text-spool-dim transition-colors focus:border-spool-accent/75 focus:outline-none focus:ring-2 focus:ring-spool-accent/15"
             />
             {deadCount > 0 && (
               <button

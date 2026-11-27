@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { GROUPS, PLATFORMS } from "@/lib/platforms";
 import type { Platform } from "@/lib/types";
 import { useSourceFilter } from "@/lib/useSourceFilter";
@@ -16,13 +17,13 @@ const PRESETS: Array<{ id: string; label: string; title?: string; match: (p: Pla
   { id: "all", label: "All", match: () => true },
   {
     id: "fast",
-    label: "Fast (API)",
+    label: "Fast",
     title: "Only direct API and plain HTTP sites — skips slower browser-scraped sites",
     match: (p) => !PLATFORMS[p].browser,
   },
-  { id: "print", label: "3D Printing", match: (p) => PLATFORMS[p].group === "community" || PLATFORMS[p].group === "brand" },
+  { id: "print", label: "3D Print", match: (p) => PLATFORMS[p].group === "community" || PLATFORMS[p].group === "brand" },
   { id: "cad", label: "CAD", match: (p) => PLATFORMS[p].group === "cad" },
-  { id: "assets", label: "3D Assets", match: (p) => PLATFORMS[p].group === "general" },
+  { id: "assets", label: "Assets", match: (p) => PLATFORMS[p].group === "general" },
 ];
 
 /**
@@ -31,6 +32,7 @@ const PRESETS: Array<{ id: string; label: string; title?: string; match: (p: Pla
  */
 export function SourceFilter({ progress, platforms }: Props) {
   const { isEnabled, setEnabled } = useSourceFilter();
+  const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
   const enabledCount = platforms.filter(isEnabled).length;
 
   const applyPreset = (match: (p: Platform) => boolean) => {
@@ -41,25 +43,32 @@ export function SourceFilter({ progress, platforms }: Props) {
     if (turnOff.length) setEnabled(turnOff, false);
   };
 
+  const toggleGroupOpen = (id: string) => {
+    setCollapsedGroups((prev) => ({ ...prev, [id]: !prev[id] }));
+  };
+
   return (
-    <div className="flex flex-col gap-4">
-      <div className="flex items-center justify-between gap-3">
-        <p className="font-mono text-xs text-spool-muted">
-          Spools · <span className="text-spool-text">{enabledCount}</span> of {platforms.length} loaded
+    <div className="flex flex-col gap-3.5">
+      <div className="flex items-center justify-between gap-2 px-1">
+        <p className="font-mono text-[11px] uppercase tracking-wider text-spool-dim">
+          Sources · <span className="text-spool-text">{enabledCount}</span>/{platforms.length}
         </p>
         {enabledCount !== platforms.length && (
-          <button onClick={() => setEnabled(platforms, true)} className="text-xs font-medium text-spool-accent-soft hover:text-spool-text">
-            Select all
+          <button
+            type="button"
+            onClick={() => setEnabled(platforms, true)}
+            className="text-[11px] font-medium text-spool-accent-soft transition-colors hover:text-spool-text"
+          >
+            All
           </button>
         )}
       </div>
 
-      <div className="flex flex-wrap gap-1.5" role="group" aria-label="Source presets">
+      <div className="flex flex-wrap gap-1" role="group" aria-label="Source presets">
         {PRESETS.map((preset) => {
           const targets = platforms.filter(preset.match);
           if (!targets.length) return null;
-          const active =
-            enabledCount === targets.length && targets.every((p) => isEnabled(p));
+          const active = enabledCount === targets.length && targets.every((p) => isEnabled(p));
           return (
             <button
               key={preset.id}
@@ -67,10 +76,10 @@ export function SourceFilter({ progress, platforms }: Props) {
               title={preset.title}
               onClick={() => applyPreset(preset.match)}
               aria-pressed={active}
-              className={`rounded-lg px-2.5 py-1 text-xs font-medium transition-colors ${
+              className={`rounded-full px-2 py-0.5 text-[11px] font-medium transition-colors ${
                 active
                   ? "bg-spool-accent/15 text-spool-accent-soft ring-1 ring-inset ring-spool-accent/50"
-                  : "bg-spool-chip text-spool-muted hover:text-spool-text"
+                  : "bg-spool-chip/70 text-spool-muted hover:bg-spool-chip hover:text-spool-text"
               }`}
             >
               {preset.label}
@@ -79,73 +88,103 @@ export function SourceFilter({ progress, platforms }: Props) {
         })}
       </div>
 
-      {GROUPS.map((group) => {
-        const sites = platforms.filter((p) => PLATFORMS[p].group === group.id);
-        if (!sites.length) return null;
-        const on = sites.filter(isEnabled).length;
-        const state = on === 0 ? "off" : on === sites.length ? "on" : "some";
-        return (
-          <div key={group.id} className="flex flex-col gap-2">
-            <button
-              onClick={() => setEnabled(sites, state !== "on")}
-              aria-pressed={state === "on" ? true : state === "off" ? false : "mixed"}
-              title={group.description}
-              className="group/g flex items-start gap-2.5 text-left"
-            >
-              <span
-                className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-[5px] border transition-colors ${
-                  state === "off" ? "border-spool-line" : "border-spool-accent bg-spool-accent"
-                }`}
-              >
-                {state === "on" && (
-                  <svg className="h-3 w-3 text-spool-side" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3.5} d="M5 13l4 4L19 7" />
-                  </svg>
-                )}
-                {state === "some" && <span className="h-0.5 w-2 rounded bg-spool-side" />}
-              </span>
-              <span className="min-w-0">
-                <span className={`block text-sm font-semibold ${state === "off" ? "text-spool-dim" : "text-spool-text"} group-hover/g:text-white`}>
-                  {group.name}
-                </span>
-                <span className="block text-[11px] leading-snug text-spool-dim">{group.description}</span>
-              </span>
-            </button>
-
-            <div className="flex flex-wrap gap-1.5 pl-[26px]">
-              {sites.map((p) => {
-                const active = isEnabled(p);
-                return (
-                  <button
-                    key={p}
-                    onClick={() => setEnabled([p], !active)}
-                    aria-pressed={active}
-                    className={`inline-flex items-center gap-1.5 rounded-full py-1 pl-1.5 pr-2.5 text-xs transition-colors ${
-                      active
-                        ? "bg-spool-chip text-spool-text hover:bg-spool-line"
-                        : "bg-transparent text-spool-dim line-through ring-1 ring-inset ring-spool-line-soft hover:text-spool-muted"
+      <div className="flex flex-col gap-3">
+        {GROUPS.map((group) => {
+          const sites = platforms.filter((p) => PLATFORMS[p].group === group.id);
+          if (!sites.length) return null;
+          const on = sites.filter(isEnabled).length;
+          const state = on === 0 ? "off" : on === sites.length ? "on" : "some";
+          const isCollapsed = !!collapsedGroups[group.id];
+          return (
+            <div key={group.id} className="flex flex-col gap-1.5">
+              <div className="flex items-center gap-1.5 px-0.5">
+                <button
+                  type="button"
+                  onClick={() => setEnabled(sites, state !== "on")}
+                  aria-pressed={state === "on" ? true : state === "off" ? false : "mixed"}
+                  title={group.description}
+                  className="group/g flex min-w-0 flex-1 items-center gap-2 text-left"
+                >
+                  <span
+                    className={`flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-[4px] border transition-colors ${
+                      state === "off" ? "border-spool-line" : "border-spool-accent bg-spool-accent"
                     }`}
                   >
-                    <SpoolDot platform={p} size={13} muted={!active} />
-                    {PLATFORMS[p].name}
-                    {active && progress?.states[p] === "pending" && (
-                      <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-spool-accent" title="Searching…" />
+                    {state === "on" && (
+                      <svg className="h-2.5 w-2.5 text-spool-side" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3.5} d="M5 13l4 4L19 7" />
+                      </svg>
                     )}
-                    {active && progress?.states[p] === "failed" && (
-                      <span className="font-mono text-[11px] text-[#FCA5A5]" title={progress.errors[p] || "Failed"}>
-                        !
-                      </span>
-                    )}
-                    {active && progress && (progress.states[p] === "ok" || progress.states[p] === "empty") && (
-                      <span className="font-mono text-[11px] text-spool-muted">{progress.counts[p] ?? 0}</span>
-                    )}
-                  </button>
-                );
-              })}
+                    {state === "some" && <span className="h-0.5 w-2 rounded bg-spool-side" />}
+                  </span>
+                  <span
+                    className={`truncate text-xs font-semibold transition-colors ${
+                      state === "off" ? "text-spool-dim" : "text-spool-text"
+                    } group-hover/g:text-white`}
+                  >
+                    {group.name}
+                  </span>
+                </button>
+                <span className="font-mono text-[10px] text-spool-dim">
+                  {on}/{sites.length}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => toggleGroupOpen(group.id)}
+                  aria-expanded={!isCollapsed}
+                  aria-label={`${isCollapsed ? "Show" : "Hide"} ${group.name} sites`}
+                  className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-spool-dim transition-colors hover:bg-spool-chip hover:text-spool-text"
+                >
+                  <svg
+                    className={`h-3 w-3 transition-transform ${isCollapsed ? "-rotate-90" : ""}`}
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                    aria-hidden="true"
+                  >
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                  </svg>
+                </button>
+              </div>
+
+              {!isCollapsed && (
+                <div className="flex flex-wrap gap-1 pl-5">
+                  {sites.map((p) => {
+                    const active = isEnabled(p);
+                    return (
+                      <button
+                        key={p}
+                        type="button"
+                        onClick={() => setEnabled([p], !active)}
+                        aria-pressed={active}
+                        className={`inline-flex items-center gap-1.5 rounded-full py-0.5 pl-1.5 pr-2 text-[11.5px] transition-colors ${
+                          active
+                            ? "bg-spool-chip/85 text-spool-text hover:bg-spool-line"
+                            : "bg-transparent text-spool-dim opacity-60 ring-1 ring-inset ring-spool-line-soft hover:opacity-100 hover:text-spool-muted"
+                        }`}
+                      >
+                        <SpoolDot platform={p} size={11} muted={!active} />
+                        {PLATFORMS[p].name}
+                        {active && progress?.states[p] === "pending" && (
+                          <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-spool-accent" title="Searching…" />
+                        )}
+                        {active && progress?.states[p] === "failed" && (
+                          <span className="font-mono text-[10px] text-[#FCA5A5]" title={progress.errors[p] || "Failed"}>
+                            !
+                          </span>
+                        )}
+                        {active && progress && (progress.states[p] === "ok" || progress.states[p] === "empty") && (
+                          <span className="font-mono text-[10px] text-spool-muted">{progress.counts[p] ?? 0}</span>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
             </div>
-          </div>
-        );
-      })}
+          );
+        })}
+      </div>
     </div>
   );
 }

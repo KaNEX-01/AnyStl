@@ -95,10 +95,10 @@ export default function FeaturedPage() {
               load(true);
             }}
             disabled={loading}
-            className="rounded-xl border border-spool-line bg-spool-field px-4 py-2 text-sm font-medium text-spool-text hover:border-spool-accent disabled:opacity-50"
+            className="rounded-full border border-spool-line-soft bg-spool-card/80 px-4 py-1.5 text-xs font-medium text-spool-text transition-colors hover:border-spool-accent/70 disabled:opacity-50"
           >
             <span className="flex items-center gap-2">
-              {loading && <LogoLoader size={18} />}
+              {loading && <LogoLoader size={15} />}
               {loading ? "Loading…" : "Refresh"}
             </span>
           </button>

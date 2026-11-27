@@ -8,7 +8,7 @@ import { useSearchPlatforms } from "@/lib/useSourceFilter";
 import { HealthCheckEvent, Platform, SiteCheck, SiteHealth } from "@/lib/types";
 
 const toolButton =
-  "inline-flex h-9 items-center gap-2 rounded-[10px] border border-spool-line bg-spool-field px-3 text-sm text-spool-text transition-colors hover:border-spool-accent disabled:opacity-50";
+  "inline-flex h-9 items-center gap-2 rounded-full border border-spool-line-soft bg-spool-card/80 px-4 text-xs font-medium text-spool-text transition-colors hover:border-spool-accent/70 disabled:opacity-50";
 
 type Verdict = "ok" | "warn" | "failed" | "blocked" | "unknown";
 
@@ -54,7 +54,7 @@ function lastResult(check: SiteCheck): string {
 }
 
 const rowButton =
-  "inline-flex h-7 items-center gap-1.5 rounded-lg border border-spool-line bg-spool-field px-2.5 text-xs text-spool-text transition-colors hover:border-spool-accent disabled:opacity-50";
+  "inline-flex h-7 items-center gap-1.5 rounded-full border border-spool-line-soft bg-spool-card/80 px-3 text-xs text-spool-text transition-colors hover:border-spool-accent/70 disabled:opacity-50";
 
 function SiteRow({
   platform,

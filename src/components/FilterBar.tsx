@@ -9,6 +9,18 @@ interface Props {
   onChange: (next: ResultFilters) => void;
   /** Words excluded with "-word" in the query, shown as a reminder. */
   excludes: string[];
+  centered?: boolean;
+}
+
+function countActiveFilters(value: ResultFilters): number {
+  return (
+    (value.freeOnly !== DEFAULT_FILTERS.freeOnly ? 1 : 0) +
+    (value.hideAI !== DEFAULT_FILTERS.hideAI ? 1 : 0) +
+    (value.mergeDuplicates !== DEFAULT_FILTERS.mergeDuplicates ? 1 : 0) +
+    (value.maxPrice !== DEFAULT_FILTERS.maxPrice ? 1 : 0) +
+    (value.format !== DEFAULT_FILTERS.format ? 1 : 0) +
+    (value.license !== DEFAULT_FILTERS.license ? 1 : 0)
+  );
 }
 
 function Toggle({ on, onClick, children, title }: { on: boolean; onClick: () => void; children: React.ReactNode; title?: string }) {
@@ -18,8 +30,10 @@ function Toggle({ on, onClick, children, title }: { on: boolean; onClick: () => 
       onClick={onClick}
       aria-pressed={on}
       title={title}
-      className={`rounded-full px-3 py-1.5 text-xs font-medium transition-colors ${
-        on ? "bg-spool-accent text-spool-side" : "bg-spool-chip text-spool-muted hover:text-spool-text"
+      className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
+        on
+          ? "border-spool-accent/60 bg-spool-accent/15 text-spool-accent-soft"
+          : "border-spool-line-soft/90 bg-spool-card/75 text-spool-muted hover:border-spool-line hover:text-spool-text"
       }`}
     >
       {children}
@@ -28,7 +42,7 @@ function Toggle({ on, onClick, children, title }: { on: boolean; onClick: () => 
 }
 
 /** Filters applied to the results already returned by the sources. */
-export function FilterBar({ value, onChange, excludes }: Props) {
+export function FilterBar({ value, onChange, excludes, centered }: Props) {
   const set = (patch: Partial<ResultFilters>) => onChange({ ...value, ...patch });
   // The price box keeps its own text so typing "1." isn't rewritten mid-way.
   const [priceText, setPriceText] = useState(value.maxPrice === null ? "" : String(value.maxPrice));
@@ -38,16 +52,10 @@ export function FilterBar({ value, onChange, excludes }: Props) {
     setPriceText(value.maxPrice === null ? "" : String(value.maxPrice));
   }
 
-  const activeCount =
-    (value.freeOnly !== DEFAULT_FILTERS.freeOnly ? 1 : 0) +
-    (value.hideAI !== DEFAULT_FILTERS.hideAI ? 1 : 0) +
-    (value.mergeDuplicates !== DEFAULT_FILTERS.mergeDuplicates ? 1 : 0) +
-    (value.maxPrice !== DEFAULT_FILTERS.maxPrice ? 1 : 0) +
-    (value.format !== DEFAULT_FILTERS.format ? 1 : 0) +
-    (value.license !== DEFAULT_FILTERS.license ? 1 : 0);
+  const activeCount = countActiveFilters(value);
 
   return (
-    <div className="flex flex-wrap items-center gap-2">
+    <div className={`flex flex-wrap items-center gap-1.5 ${centered ? "justify-center" : ""}`}>
       <Toggle on={value.freeOnly} onClick={() => set({ freeOnly: !value.freeOnly })} title="Hide paid models and marketplace results without a price">
         Free only
       </Toggle>
@@ -62,8 +70,10 @@ export function FilterBar({ value, onChange, excludes }: Props) {
         Merge duplicates
       </Toggle>
       <label
-        className={`inline-flex items-center gap-1.5 rounded-full py-1 pl-3 pr-1 text-xs font-medium transition-colors ${
-          value.maxPrice !== null ? "bg-spool-accent text-spool-side" : "bg-spool-chip text-spool-muted"
+        className={`inline-flex items-center gap-1.5 rounded-full border py-0.5 pl-3 pr-1 text-xs font-medium transition-colors ${
+          value.maxPrice !== null
+            ? "border-spool-accent/60 bg-spool-accent/15 text-spool-accent-soft"
+            : "border-spool-line-soft/90 bg-spool-card/75 text-spool-muted"
         }`}
       >
         Max $
@@ -79,12 +89,14 @@ export function FilterBar({ value, onChange, excludes }: Props) {
             setLastMax(next);
             set({ maxPrice: next });
           }}
-          className="w-14 rounded-full bg-spool-bg/60 px-2 py-0.5 text-spool-text placeholder:text-spool-dim focus:outline-none"
+          className="w-12 rounded-full bg-spool-bg/70 px-2 py-0.5 text-spool-text placeholder:text-spool-dim focus:outline-none"
         />
       </label>
       <label
-        className={`inline-flex items-center gap-1.5 rounded-full py-1 pl-3 pr-1 text-xs font-medium transition-colors ${
-          value.format !== null ? "bg-spool-accent text-spool-side" : "bg-spool-chip text-spool-muted"
+        className={`inline-flex items-center gap-1.5 rounded-full border py-0.5 pl-3 pr-1 text-xs font-medium transition-colors ${
+          value.format !== null
+            ? "border-spool-accent/60 bg-spool-accent/15 text-spool-accent-soft"
+            : "border-spool-line-soft/90 bg-spool-card/75 text-spool-muted"
         }`}
         title="Matches formats reported by the source. Results without a listed format are unknown."
       >
@@ -92,7 +104,7 @@ export function FilterBar({ value, onChange, excludes }: Props) {
         <select
           value={value.format ?? ""}
           onChange={(e) => set({ format: parseFormatFilter(e.target.value) })}
-          className="rounded-full bg-spool-bg px-2 py-0.5 text-spool-text focus:outline-none"
+          className="cursor-pointer rounded-full bg-spool-bg/80 px-2 py-0.5 text-spool-text focus:outline-none"
         >
           <option value="">Any</option>
           {MODEL_FORMATS.map((format) => <option key={format}>{format}</option>)}
@@ -100,8 +112,10 @@ export function FilterBar({ value, onChange, excludes }: Props) {
         </select>
       </label>
       <label
-        className={`inline-flex items-center gap-1.5 rounded-full py-1 pl-3 pr-1 text-xs font-medium transition-colors ${
-          value.license !== null ? "bg-spool-accent text-spool-side" : "bg-spool-chip text-spool-muted"
+        className={`inline-flex items-center gap-1.5 rounded-full border py-0.5 pl-3 pr-1 text-xs font-medium transition-colors ${
+          value.license !== null
+            ? "border-spool-accent/60 bg-spool-accent/15 text-spool-accent-soft"
+            : "border-spool-line-soft/90 bg-spool-card/75 text-spool-muted"
         }`}
         title="Commercial reuse matches CC0, CC BY and CC BY-SA. Check the original license and its conditions."
       >
@@ -109,7 +123,7 @@ export function FilterBar({ value, onChange, excludes }: Props) {
         <select
           value={value.license ?? ""}
           onChange={(e) => set({ license: parseLicenseFilter(e.target.value) })}
-          className="rounded-full bg-spool-bg px-2 py-0.5 text-spool-text focus:outline-none"
+          className="cursor-pointer rounded-full bg-spool-bg/80 px-2 py-0.5 text-spool-text focus:outline-none"
         >
           <option value="">Any</option>
           <option value="commercial">Commercial reuse (CC)</option>
