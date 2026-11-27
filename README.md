@@ -11,7 +11,7 @@
 </div>
 
 <p align="center">
-  <img src="docs/screenshot-home.png" alt="AnyStl search interface" width="100%" />
+  <img src="docs/demo.gif" alt="AnyStl live demo" width="100%" />
 </p>
 
 ## Highlights
