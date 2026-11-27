@@ -26,24 +26,23 @@
 
 ## Quick Start
 
-### Desktop App (Windows & Linux — Recommended)
+### Desktop App & App Launcher (Windows & Linux — Recommended)
 
-Download the latest release from [GitHub Releases](https://github.com/KaNEX-01/AnyStl/releases) — no Node.js or build step required:
+Download the latest release from [GitHub Releases](https://github.com/KaNEX-01/AnyStl/releases) — opens in a native window with no terminal, no Node.js install, and no build step:
 
-- **Windows:** run `AnyStl_*_x64-setup.exe` (user-level installer) or unzip `AnyStl-windows-x64-portable.zip` and launch `AnyStl.exe`.
-- **Linux:** run `AnyStl_*_amd64.AppImage`, install the `.deb` package, or extract `AnyStl-linux-x64-portable.tar.gz`.
+- **Windows:** run `AnyStl_*_x64-setup.exe` (installs to your **Start Menu** & **Desktop**, no admin rights needed) or unzip `AnyStl-windows-x64-portable.zip` and launch `AnyStl.exe`.
+- **Linux:** install `AnyStl_*_amd64.deb` (adds **AnyStl** to your **App Launcher** / application menu), run `AnyStl_*_amd64.AppImage`, or extract `AnyStl-linux-x64-portable.tar.gz`.
 
-### Run from Source
+### Install App Launcher from Source
 
 ```bash
 git clone https://github.com/KaNEX-01/AnyStl.git
 cd AnyStl
 ```
 
-- **Windows:** double-click `start.cmd` (auto-installs private Node.js LTS if needed).
-- **Linux / macOS:** install [Node.js 20+](https://nodejs.org) and run `./start.sh`.
-
-Opens automatically at `http://localhost:3000`.
+- **Linux App Launcher (`.desktop` entry + `~/.local/bin/anystl`):** `npm run desktop:install-linux` *(requires Rust & `webkit2gtk-4.1`)*
+- **Windows App Launcher (Start Menu & Desktop shortcut):** `powershell -ExecutionPolicy Bypass -File desktop\install-windows.ps1 -DesktopShortcut`
+- **Browser only (no desktop build):** run `start.cmd` (Windows) or `./start.sh` (Linux/macOS, Node.js 20+) → opens `http://localhost:3000`.
 
 ## Supported Sources
 
@@ -77,14 +76,9 @@ Copy `.env.example` to `.env.local` and set only what you need, then restart Any
 </details>
 
 <details>
-<summary><strong>Building desktop installers & running tests</strong></summary>
+<summary><strong>Running tests</strong></summary>
 
 ```bash
-# Build native desktop launcher locally
-npm run desktop:install-linux                                                  # Linux (requires Rust + webkit2gtk-4.1)
-powershell -ExecutionPolicy Bypass -File desktop\install-windows.ps1           # Windows
-
-# Tests
 bash scripts/test-apis.sh                  # Offline API & metadata suites
 bash scripts/test-apis.sh --live           # Live API checks
 bash scripts/test-orcaslicer-plugin.sh     # OrcaSlicer plugin tests
