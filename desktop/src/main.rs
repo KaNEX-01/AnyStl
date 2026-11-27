@@ -121,6 +121,27 @@ fn is_project_dir(dir: &Path) -> bool {
         || dir.join("next.config.ts").is_file()
 }
 
+fn managed_data_root() -> Option<PathBuf> {
+    #[cfg(windows)]
+    {
+        env::var_os("LOCALAPPDATA")
+            .map(PathBuf::from)
+            .or_else(|| env::var_os("USERPROFILE").map(|p| PathBuf::from(p).join("AppData").join("Local")))
+            .map(|p| p.join("AnyStl"))
+    }
+    #[cfg(target_os = "macos")]
+    {
+        env::var_os("HOME").map(|h| PathBuf::from(h).join("Library").join("Application Support").join("AnyStl"))
+    }
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        env::var_os("XDG_DATA_HOME")
+            .map(PathBuf::from)
+            .or_else(|| env::var_os("HOME").map(|h| PathBuf::from(h).join(".local").join("share")))
+            .map(|p| p.join("anystl"))
+    }
+}
+
 fn find_project_dir() -> Option<PathBuf> {
     if let Ok(explicit) = env::var("ANYSTL_DIR") {
         let p = PathBuf::from(explicit);
@@ -158,7 +179,120 @@ fn find_project_dir() -> Option<PathBuf> {
         }
     }
 
+    if let Some(root) = managed_data_root() {
+        let managed_app = root.join("app");
+        if is_project_dir(&managed_app) {
+            return Some(managed_app);
+        }
+    }
+
     None
+}
+
+fn download_managed_project(window: &WebviewWindow) -> Result<PathBuf, String> {
+    let root = managed_data_root().ok_or_else(|| {
+        "Could not determine a writable user data directory.\nPlace AnyStl in a project folder or set ANYSTL_DIR."
+            .to_string()
+    })?;
+    let dest = root.join("app");
+    if is_project_dir(&dest) {
+        return Ok(dest);
+    }
+
+    set_splash_status(
+        window,
+        "Downloading AnyStl (first run)…",
+        &dest.display().to_string(),
+    );
+
+    let archive_url = env::var("ANYSTL_SOURCE_ARCHIVE_URL")
+        .unwrap_or_else(|_| "https://github.com/KaNEX-01/AnyStl/archive/refs/heads/main.zip".to_string());
+
+    #[cfg(windows)]
+    {
+        let script = r#"
+$ErrorActionPreference = 'Stop'
+$url = $env:ANYSTL_DL_URL
+$dest = $env:ANYSTL_DL_DEST
+$tmp = Join-Path ([IO.Path]::GetTempPath()) ("anystl-src-" + [Guid]::NewGuid().ToString('N'))
+$zip = Join-Path $tmp 'anystl.zip'
+$ext = Join-Path $tmp 'ext'
+try {
+  New-Item -ItemType Directory -Path $ext -Force | Out-Null
+  [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+  $curl = Get-Command curl.exe -ErrorAction SilentlyContinue
+  $ok = $false
+  if ($curl) {
+    $prev = $ErrorActionPreference; $ErrorActionPreference = 'Continue'
+    & $curl.Source --ssl-no-revoke -fL --retry 2 --connect-timeout 20 -o $zip $url
+    $ok = ($LASTEXITCODE -eq 0 -and (Test-Path -LiteralPath $zip))
+    $ErrorActionPreference = $prev
+  }
+  if (-not $ok) {
+    Invoke-WebRequest -Uri $url -OutFile $zip -UseBasicParsing -TimeoutSec 180
+  }
+  Expand-Archive -Path $zip -DestinationPath $ext -Force
+  $inner = Get-ChildItem -LiteralPath $ext -Directory | Select-Object -First 1
+  if (-not $inner) { throw 'Downloaded AnyStl archive is empty.' }
+  if (Test-Path -LiteralPath $dest) { Remove-Item -LiteralPath $dest -Recurse -Force }
+  New-Item -ItemType Directory -Path (Split-Path -Parent $dest) -Force | Out-Null
+  Move-Item -LiteralPath $inner.FullName -Destination $dest -Force
+} finally {
+  if (Test-Path -LiteralPath $tmp) { Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue }
+}
+"#;
+        let mut cmd = Command::new("powershell.exe");
+        cmd.args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script])
+            .env("ANYSTL_DL_URL", &archive_url)
+            .env("ANYSTL_DL_DEST", &dest)
+            .stdout(Stdio::null())
+            .stderr(Stdio::piped())
+            .creation_flags(CREATE_NO_WINDOW);
+        let output = cmd
+            .output()
+            .map_err(|e| format!("Failed to start PowerShell to download AnyStl: {e}"))?;
+        if !output.status.success() {
+            let tail = tail_lines(&String::from_utf8_lossy(&output.stderr), 10);
+            return Err(format!("Could not download AnyStl:\n{tail}"));
+        }
+    }
+
+    #[cfg(not(windows))]
+    {
+        let script = r#"
+set -e
+tmp=$(mktemp -d)
+trap 'rm -rf "$tmp"' EXIT
+curl -fL --retry 2 --connect-timeout 20 -o "$tmp/anystl.zip" "$ANYSTL_DL_URL"
+unzip -q "$tmp/anystl.zip" -d "$tmp/ext"
+inner=$(find "$tmp/ext" -mindepth 1 -maxdepth 1 -type d | head -n 1)
+if [ -z "$inner" ]; then
+  echo "Downloaded AnyStl archive is empty." >&2
+  exit 1
+fi
+rm -rf "$ANYSTL_DL_DEST"
+mkdir -p "$(dirname "$ANYSTL_DL_DEST")"
+mv "$inner" "$ANYSTL_DL_DEST"
+"#;
+        let output = Command::new("bash")
+            .args(["-c", script])
+            .env("ANYSTL_DL_URL", &archive_url)
+            .env("ANYSTL_DL_DEST", &dest)
+            .stdout(Stdio::null())
+            .stderr(Stdio::piped())
+            .output()
+            .map_err(|e| format!("Failed to download AnyStl: {e}"))?;
+        if !output.status.success() {
+            let tail = tail_lines(&String::from_utf8_lossy(&output.stderr), 10);
+            return Err(format!("Could not download AnyStl:\n{tail}"));
+        }
+    }
+
+    if is_project_dir(&dest) {
+        Ok(dest)
+    } else {
+        Err("Downloaded AnyStl archive did not contain a valid AnyStl project.".into())
+    }
 }
 
 fn probe_http(port: u16) -> bool {
@@ -343,16 +477,95 @@ Write-Output $dest
 }
 
 #[cfg(not(windows))]
-fn ensure_node_toolchain(_window: &WebviewWindow, _project_dir: &Path) -> Result<NodeToolchain, String> {
+fn resolve_unix_node_in_dir(bin_dir: &Path) -> Option<NodeToolchain> {
+    let node_exe = bin_dir.join("node");
+    let npm_exe = bin_dir.join("npm");
+    if node_exe.is_file() && npm_exe.is_file() && node_major_version(&node_exe).unwrap_or(0) >= 20 {
+        return Some(NodeToolchain {
+            node_exe,
+            npm_exe,
+            extra_path_dir: Some(bin_dir.to_path_buf()),
+        });
+    }
+    None
+}
+
+#[cfg(not(windows))]
+fn ensure_node_toolchain(window: &WebviewWindow, _project_dir: &Path) -> Result<NodeToolchain, String> {
+    let _ = window;
     if node_major_version(Path::new("node")).unwrap_or(0) >= 20 {
-        Ok(NodeToolchain {
+        return Ok(NodeToolchain {
             node_exe: PathBuf::from("node"),
             npm_exe: PathBuf::from("npm"),
             extra_path_dir: None,
-        })
-    } else {
-        Err("Node.js 20+ is required to run AnyStl.\nInstall it from https://nodejs.org and launch AnyStl again.".into())
+        });
     }
+
+    if let Some(root) = managed_data_root() {
+        let managed_bin = root.join("node").join("bin");
+        if let Some(found) = resolve_unix_node_in_dir(&managed_bin) {
+            return Ok(found);
+        }
+
+        #[cfg(target_os = "linux")]
+        {
+            set_splash_status(
+                window,
+                "Downloading Node.js LTS (first run)…",
+                "Installing a private Node.js runtime into ~/.local/share/anystl/node.",
+            );
+            let arch = match env::consts::ARCH {
+                "aarch64" => "arm64",
+                _ => "x64",
+            };
+            let dest = root.join("node");
+            let script = r#"
+set -e
+arch="$ANYSTL_NODE_ARCH"
+dest="$ANYSTL_NODE_DEST"
+tmp=$(mktemp -d)
+trap 'rm -rf "$tmp"' EXIT
+ver=$(curl -fsSL --connect-timeout 20 https://nodejs.org/dist/index.json | python3 -c "
+import json, sys
+arch = sys.argv[1]
+for item in json.load(sys.stdin):
+    if item.get('lts') and int(item['version'].lstrip('v').split('.')[0]) >= 20 and f'linux-{arch}' in item.get('files', []):
+        print(item['version'])
+        break
+" "$arch")
+if [ -z "$ver" ]; then
+  echo "Could not find a compatible Node.js LTS release for linux-$arch" >&2
+  exit 1
+fi
+name="node-$ver-linux-$arch"
+curl -fL --retry 2 --connect-timeout 20 -o "$tmp/$name.tar.xz" "https://nodejs.org/dist/$ver/$name.tar.xz"
+tar -xJf "$tmp/$name.tar.xz" -C "$tmp"
+rm -rf "$dest"
+mkdir -p "$(dirname "$dest")"
+mv "$tmp/$name" "$dest"
+"#;
+            let output = Command::new("bash")
+                .args(["-c", script])
+                .env("ANYSTL_NODE_ARCH", arch)
+                .env("ANYSTL_NODE_DEST", &dest)
+                .stdout(Stdio::null())
+                .stderr(Stdio::piped())
+                .output()
+                .map_err(|e| format!("Failed to start Node.js installer: {e}"))?;
+            if output.status.success() {
+                if let Some(found) = resolve_unix_node_in_dir(&dest.join("bin")) {
+                    return Ok(found);
+                }
+            } else {
+                let tail = tail_lines(&String::from_utf8_lossy(&output.stderr), 10);
+                return Err(format!(
+                    "Automatic Node.js installation failed.\nInstall Node.js 20+ from https://nodejs.org and launch AnyStl again.\n\n{tail}"
+                ));
+            }
+        }
+    }
+
+    Err("Node.js 20+ is required to run AnyStl.\nInstall it from https://nodejs.org and launch AnyStl again.".into())
 }
 
 fn tail_lines(text: &str, count: usize) -> String {
@@ -471,7 +684,7 @@ fn playwright_chromium_installed(project_dir: &Path, tools: &NodeToolchain) -> b
 }
 
 #[cfg(windows)]
-fn has_windows_system_browser() -> bool {
+fn has_system_browser() -> bool {
     if env::var("ANYSTL_FORCE_PLAYWRIGHT_BROWSER").ok().as_deref() == Some("1") {
         return false;
     }
@@ -488,8 +701,26 @@ fn has_windows_system_browser() -> bool {
     candidates.iter().any(|p| p.is_file())
 }
 
-#[cfg(not(windows))]
-fn has_windows_system_browser() -> bool {
+#[cfg(target_os = "linux")]
+fn has_system_browser() -> bool {
+    if env::var("ANYSTL_FORCE_PLAYWRIGHT_BROWSER").ok().as_deref() == Some("1") {
+        return false;
+    }
+    [
+        "/usr/bin/chromium",
+        "/usr/bin/chromium-browser",
+        "/usr/bin/google-chrome",
+        "/usr/bin/google-chrome-stable",
+        "/usr/bin/brave",
+        "/usr/bin/brave-browser",
+        "/usr/bin/microsoft-edge",
+    ]
+    .iter()
+    .any(|p| Path::new(p).is_file())
+}
+
+#[cfg(not(any(windows, target_os = "linux")))]
+fn has_system_browser() -> bool {
     false
 }
 
@@ -499,7 +730,7 @@ fn ensure_playwright_browser(
     tools: &NodeToolchain,
 ) -> Result<(), String> {
     if env_no_browser(project_dir)
-        || has_windows_system_browser()
+        || has_system_browser()
         || playwright_chromium_installed(project_dir, tools)
     {
         return Ok(());
@@ -815,7 +1046,21 @@ fn bootstrap_server(
     }
 
     // Fast path for packaged end-user releases: bundled standalone server + Node.js runtime.
+    // Still ensures a browser (system Chrome/Edge/Chromium or Playwright Chromium) is ready on first run.
     if let Some(bundled) = find_bundled_runtime(&app_handle) {
+        let bundled_tools = NodeToolchain {
+            node_exe: bundled.node_exe.clone(),
+            npm_exe: PathBuf::from(if cfg!(windows) { "npm.cmd" } else { "npm" }),
+            extra_path_dir: bundled
+                .node_exe
+                .parent()
+                .filter(|p| !p.as_os_str().is_empty())
+                .map(Path::to_path_buf),
+        };
+        if let Err(err) = ensure_playwright_browser(&window, &bundled.app_dir, &bundled_tools) {
+            set_splash_error(&window, &err);
+            return;
+        }
         let port = match pick_free_port(preferred_port) {
             Ok(p) => p,
             Err(err) => {
@@ -834,16 +1079,20 @@ fn bootstrap_server(
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::piped());
+        configure_tool_env(&mut cmd, &bundled_tools);
         spawn_and_wait_server(&window, &procs, &allowed_port, port, cmd);
         return;
     }
 
-    let Some(project_dir) = find_project_dir() else {
-        set_splash_error(
-            &window,
-            "Could not locate the AnyStl app bundle or project folder.\nReinstall AnyStl or set ANYSTL_DIR.",
-        );
-        return;
+    let project_dir = match find_project_dir() {
+        Some(dir) => dir,
+        None => match download_managed_project(&window) {
+            Ok(dir) => dir,
+            Err(err) => {
+                set_splash_error(&window, &err);
+                return;
+            }
+        },
     };
 
     let tools = match ensure_node_toolchain(&window, &project_dir) {

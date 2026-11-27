@@ -36,6 +36,30 @@ if (existsSync(publicDir)) {
   cpSync(publicDir, path.join(appDest, "public"), { recursive: true });
 }
 
+// Include full Playwright + playwright-core packages and browser installer
+// scripts so first launch can download Chromium automatically on machines
+// without Chrome/Edge/Chromium.
+for (const pkg of ["playwright", "playwright-core"]) {
+  const src = path.join(root, "node_modules", pkg);
+  if (existsSync(src)) {
+    const dest = path.join(appDest, "node_modules", pkg);
+    rmSync(dest, { recursive: true, force: true });
+    cpSync(src, dest, { recursive: true });
+  }
+}
+const scriptsDest = path.join(appDest, "scripts");
+mkdirSync(scriptsDest, { recursive: true });
+for (const scriptName of ["install-browsers.sh", "install-browsers.ps1"]) {
+  const src = path.join(root, "scripts", scriptName);
+  if (existsSync(src)) {
+    const dest = path.join(scriptsDest, scriptName);
+    cpSync(src, dest);
+    if (process.platform !== "win32" && scriptName.endsWith(".sh")) {
+      chmodSync(dest, 0o755);
+    }
+  }
+}
+
 const nodeBinName = process.platform === "win32" ? "node.exe" : "node";
 const bundledNode = path.join(nodeDest, nodeBinName);
 console.log(`-> Bundling Node.js runtime (${process.version}) into desktop/resources/node/${nodeBinName}...`);

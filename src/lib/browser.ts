@@ -22,20 +22,27 @@ const LINUX_SYSTEM_BROWSERS = [
   "/usr/bin/microsoft-edge",
 ];
 
-async function launchChromium(): Promise<Browser> {
+async function launchChromium(options?: {
+  headless?: boolean;
+  args?: string[];
+  env?: Record<string, string>;
+}): Promise<Browser> {
+  const headless = options?.headless ?? true;
+  const args = options?.args ?? LAUNCH_ARGS;
+  const env = options?.env;
   // Prefer Playwright's full Chromium ("new headless") build; fall back to
   // system Chrome, Edge or Chromium when Playwright's browser is not installed.
-  const channels: Array<"chromium" | "chrome" | "msedge"> =
-    process.platform === "win32" ? ["chromium", "chrome", "msedge"] : ["chromium", "chrome", "msedge"];
+  const channels: Array<"chromium" | "chrome" | "msedge"> = ["chromium", "chrome", "msedge"];
   let lastErr: unknown;
   for (const channel of channels) {
     try {
       return await chromium.launch({
         channel,
-        headless: true,
+        headless,
         // Don't advertise that the browser is being automated.
         ignoreDefaultArgs: ["--enable-automation"],
-        args: LAUNCH_ARGS,
+        args,
+        ...(env ? { env } : {}),
       });
     } catch (err) {
       lastErr = err;
@@ -47,9 +54,10 @@ async function launchChromium(): Promise<Browser> {
       try {
         return await chromium.launch({
           executablePath,
-          headless: true,
+          headless,
           ignoreDefaultArgs: ["--enable-automation"],
-          args: LAUNCH_ARGS,
+          args,
+          ...(env ? { env } : {}),
         });
       } catch (err) {
         lastErr = err;
@@ -102,10 +110,8 @@ export async function getHeadfulContext(): Promise<BrowserContext> {
   }
   if (!headfulBrowser || !headfulBrowser.isConnected()) {
     headfulContext = null;
-    headfulBrowser = await chromium.launch({
-      channel: "chromium",
+    headfulBrowser = await launchChromium({
       headless: false,
-      ignoreDefaultArgs: ["--enable-automation"],
       args: [
         "--no-sandbox",
         "--disable-blink-features=AutomationControlled",
@@ -113,7 +119,7 @@ export async function getHeadfulContext(): Promise<BrowserContext> {
         "--ozone-platform=x11",
         "--window-size=1920,1080",
       ],
-      env: { ...process.env, DISPLAY: display, WAYLAND_DISPLAY: "" },
+      env: { ...process.env, DISPLAY: display, WAYLAND_DISPLAY: "" } as Record<string, string>,
     });
   }
   headfulContext ??= await createStealthContext(headfulBrowser);
